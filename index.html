@@ -72,6 +72,22 @@ img{max-width:100%}
 }
 
 * { box-sizing: border-box; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.thumb {
+  width: 64px; height: 64px; object-fit: cover; cursor: pointer;
+  border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2);
+}
+.lightbox {
+  position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.9);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+}
+.lightbox img { max-width: 100%; max-height: 78vh; object-fit: contain; border-radius: 8px; }
+.lb-bar { display: flex; gap: 8px; }
+.lb-bar .btn, .lb-bar a.btn {
+  background: #FFFFFF; color: #16181A; border-color: #FFFFFF; text-decoration: none;
+}
+input[type="file"] { padding: 7px 10px; font-size: 13px; }
 .themebar { display: flex; gap: 0; justify-content: flex-end; margin-bottom: 16px; }
 .themebar button {
   font: inherit; font-size: 12px; padding: 5px 12px; cursor: pointer;
@@ -404,12 +420,20 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         <label for="backupText">Bản sao</label>
         <textarea id="backupText" spellcheck="false" placeholder="Bấm “Chép bản sao” để lấy, hoặc dán bản sao từ máy khác vào đây rồi bấm “Khôi phục”."></textarea>
       </div>
+      <p class="sp" id="usage" style="margin:0"></p>
       <div class="row-end">
         <button class="btn btn-sm" type="button" data-act="copy">Chép bản sao</button>
         <button class="btn btn-sm btn-danger" type="button" data-act="restore">Khôi phục (ghi đè)</button>
       </div>
     </div>
   </section>
+</div>
+<div class="lightbox" id="lightbox" hidden>
+  <div class="lb-bar">
+    <a class="btn btn-sm" id="lbDown" download>Tải ảnh về</a>
+    <button class="btn btn-sm" type="button" data-act="lb-close">Đóng</button>
+  </div>
+  <img id="lbImg" alt="Ảnh ghi chú phóng to">
 </div>
 <p class="status" id="status" hidden></p>
 
@@ -482,6 +506,112 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function newId(pre) { return pre + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function byId(id) { return plants.filter(function (p) { return p.id === id; })[0]; }
 
+  /* ---------- kho ảnh (IndexedDB) ---------- */
+  var IDB_NAME = 'vuon-anh', IDB_STORE = 'anh', idb = null, urlCache = {};
+  function openIdb() {
+    return new Promise(function (res) {
+      if (idb) return res(idb);
+      try {
+        var r = indexedDB.open(IDB_NAME, 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore(IDB_STORE); };
+        r.onsuccess = function () { idb = r.result; res(idb); };
+        r.onerror = function () { res(null); };
+      } catch (e) { res(null); }
+    });
+  }
+  function idbDo(mode, fn) {
+    return openIdb().then(function (db) {
+      if (!db) return null;
+      return new Promise(function (res) {
+        var tx = db.transaction(IDB_STORE, mode);
+        var req = fn(tx.objectStore(IDB_STORE));
+        tx.onerror = function () { res(null); };
+        if (req) { req.onsuccess = function () { res(req.result === undefined ? true : req.result); };
+                   req.onerror = function () { res(null); }; }
+        else tx.oncomplete = function () { res(true); };
+      });
+    });
+  }
+  function putPic(id, blob) { return idbDo('readwrite', function (st) { return st.put(blob, id); }); }
+  function getPic(id) { return idbDo('readonly', function (st) { return st.get(id); }); }
+  function delPic(id) {
+    if (urlCache[id]) { try { URL.revokeObjectURL(urlCache[id]); } catch (e) {} delete urlCache[id]; }
+    return idbDo('readwrite', function (st) { return st.delete(id); });
+  }
+
+  function shrink(file) {
+    return new Promise(function (res) {
+      var url;
+      try { url = URL.createObjectURL(file); } catch (e) { return res(null); }
+      var im = new Image();
+      im.onload = function () {
+        var MAX = 1400, w = im.naturalWidth, h = im.naturalHeight;
+        var sc = Math.min(1, MAX / Math.max(w, h));
+        var c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * sc));
+        c.height = Math.max(1, Math.round(h * sc));
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        try { c.toBlob(function (b) { res(b || null); }, 'image/jpeg', 0.78); }
+        catch (e) { res(null); }
+      };
+      im.onerror = function () { URL.revokeObjectURL(url); res(null); };
+      im.src = url;
+    });
+  }
+
+  function savePics(files) {
+    var ids = [], chain = Promise.resolve();
+    files.slice(0, 6).forEach(function (f) {
+      chain = chain.then(function () {
+        return shrink(f).then(function (b) {
+          if (!b) return;
+          var id = newId('a');
+          return putPic(id, b).then(function (ok) { if (ok) ids.push(id); });
+        });
+      });
+    });
+    return chain.then(function () { return ids; });
+  }
+
+  function hydratePics() {
+    var els = document.querySelectorAll('img[data-photo]:not([src])');
+    for (var i = 0; i < els.length; i++) (function (el) {
+      var id = el.getAttribute('data-photo');
+      if (urlCache[id]) { el.src = urlCache[id]; return; }
+      getPic(id).then(function (b) {
+        if (!b) { el.style.display = 'none'; return; }
+        try { urlCache[id] = URL.createObjectURL(b); el.src = urlCache[id]; } catch (e) {}
+      });
+    })(els[i]);
+  }
+
+  function openPic(id) {
+    getPic(id).then(function (b) {
+      if (!b) { flash('Không tìm thấy ảnh này trên máy.'); return; }
+      var u = urlCache[id];
+      if (!u) { try { u = urlCache[id] = URL.createObjectURL(b); } catch (e) { return; } }
+      $('#lbImg').src = u;
+      var a = $('#lbDown');
+      a.href = u;
+      a.download = 'cay-' + id + '.jpg';
+      $('#lightbox').hidden = false;
+    });
+  }
+
+  function showUsage() {
+    var el = $('#usage');
+    if (!el) return;
+    if (!navigator.storage || !navigator.storage.estimate) {
+      el.textContent = 'Ảnh lưu riêng trong máy, bản sao bên dưới chỉ chứa ghi chú — ảnh phải tải về từng tấm.';
+      return;
+    }
+    navigator.storage.estimate().then(function (e) {
+      el.textContent = 'Đang dùng ' + ((e.usage || 0) / 1048576).toFixed(1) +
+        ' MB. Bản sao bên dưới chỉ chứa ghi chú — ảnh phải tải về từng tấm.';
+    }).catch(function () {});
+  }
+
   var THEME_KEY = 'vuon-theme';
   function applyTheme(t) {
     var el = document.documentElement;
@@ -545,7 +675,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function commit() { save(); render(); }
 
   /* ---------- render ---------- */
-  function render() { renderStats(); renderGrid(); renderFilter(); renderFeed(); }
+  function render() {
+    renderStats(); renderGrid(); renderFilter(); renderFeed();
+    hydratePics();
+  }
 
   function renderStats() {
     var rooting = 0, flag = 0;
@@ -645,6 +778,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '</div>' +
          '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú</label>' +
          '<textarea id="d-note-' + p.id + '" name="note" placeholder="VD: vết bạc màu vẫn khô và cứng, chưa lan thêm" required></textarea></div>' +
+         '<div class="field" style="margin-top:10px"><label for="d-pic-' + p.id + '">Ảnh (tùy chọn, tối đa 6)</label>' +
+         '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*" multiple></div>' +
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu ghi chú</button></div>' +
          '</form>';
     h += '<div class="fields">' +
@@ -678,6 +813,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return '<li><span class="when">' + shortDate(l.date) + '</span>' +
       '<div class="entry">' +
       '<p>' + esc(l.note) + '</p>' +
+      (l.pics && l.pics.length
+        ? '<div class="thumbs">' + l.pics.map(function (pid) {
+            return '<img class="thumb" data-photo="' + pid + '" data-pic="' + pid + '" alt="Ảnh ghi chú" loading="lazy">';
+          }).join('') + '</div>'
+        : '') +
       '<div class="meta">' +
       (withName && p ? '<span class="who">' + esc(p.name) + '</span>' : '') +
       '<span class="mark ' + (l.mark || '') + '" style="margin:0"></span>' + (MARKS[l.mark] || '') +
@@ -707,6 +847,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   /* ---------- events ---------- */
   document.addEventListener('click', function (ev) {
+    var pic = ev.target.closest('[data-pic]');
+    if (pic) { openPic(pic.getAttribute('data-pic')); return; }
+    if (ev.target.id === 'lightbox') { $('#lightbox').hidden = true; return; }
     var tb = ev.target.closest('[data-theme-set]');
     if (tb) {
       var th = tb.getAttribute('data-theme-set');
@@ -718,6 +861,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!b || b.tagName === 'SELECT' || b.tagName === 'FORM') return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), p;
 
+    if (act === 'lb-close') { $('#lightbox').hidden = true; return; }
     if (act === 'toggle-add') {
       var f = $('#addForm');
       f.hidden = !f.hidden;
@@ -732,12 +876,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (act === 'do-del') {
       confirmDel = null;
       if (openId === id) openId = null;
+      logs.forEach(function (l) {
+        if (l.plantId === id && l.pics) l.pics.forEach(delPic);
+      });
       logs = logs.filter(function (l) { return l.plantId !== id; });
       plants = plants.filter(function (x) { return x.id !== id; });
       commit();
       return;
     }
     if (act === 'del-log') {
+      var gone = logs.filter(function (l) { return l.id === id; })[0];
+      if (gone && gone.pics) gone.pics.forEach(delPic);
       logs = logs.filter(function (l) { return l.id !== id; });
       commit();
       return;
@@ -745,7 +894,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (act === 'toggle-backup') {
       var box = $('#backupBox');
       box.hidden = !box.hidden;
-      if (!box.hidden) $('#backupText').value = JSON.stringify({ plants: plants, logs: logs });
+      if (!box.hidden) { $('#backupText').value = JSON.stringify({ plants: plants, logs: logs }); showUsage(); }
       return;
     }
     if (act === 'copy') {
@@ -796,16 +945,28 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       ev.preventDefault();
       var note = f.elements.note.value.trim();
       if (!note) return;
-      logs.push({
+      var rec = {
         id: newId('l'),
         plantId: f.getAttribute('data-id'),
         date: f.elements.date.value || today(),
         mark: f.elements.mark.value,
         note: note,
-        at: new Date().toISOString()
-      });
+        at: new Date().toISOString(),
+        pics: []
+      };
+      var pin = f.elements.pic;
+      var files = pin && pin.files ? [].slice.call(pin.files) : [];
       f.elements.note.value = '';
-      commit();
+      if (pin) pin.value = '';
+      if (!files.length) { logs.push(rec); commit(); return; }
+      flash('Đang xử lý ' + files.length + ' ảnh…', true);
+      savePics(files).then(function (ids) {
+        rec.pics = ids;
+        logs.push(rec);
+        commit();
+        showUsage();
+        flash(ids.length ? 'Đã lưu ' + ids.length + ' ảnh.' : 'Không đọc được ảnh nào.');
+      });
     }
   });
 
@@ -818,6 +979,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!p) return;
     if (act === 'set-stage') { p.stage = el.value; commit(); }
     if (act === 'set-spot')  { p.spot  = el.value; commit(); }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !$('#lightbox').hidden) $('#lightbox').hidden = true;
   });
 
   /* ---------- boot ---------- */
