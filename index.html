@@ -7,8 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vườn">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#EEF1EC" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#141A16" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F9F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16181A" media="(prefers-color-scheme: dark)">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="apple-touch-icon.png">
 <style>
@@ -22,17 +22,17 @@ img{max-width:100%}
 <style>
 /* Layout: thanh tổng quan → lưới thẻ cây (mở ra trải ngang để xem lịch sử) → dòng nhật ký chung */
 :root {
-  --bg: #EEF1EC;
-  --surface: #FBFCFA;
-  --surface-2: #E5EAE2;
-  --ink: #1F2620;
+  --bg: #F7F9F7;
+  --surface: #FFFFFF;
+  --surface-2: #EFF2EF;
+  --ink: #1C1C1C;
   --ink-2: #5E6B5C;
-  --line: #D3DBCF;
-  --accent: #7A4F68;
-  --accent-soft: #F1E5ED;
-  --ok: #3F7350;
-  --watch: #916218;
-  --alert: #A24436;
+  --line: #DDE4DD;
+  --accent: #2E7D5B;
+  --accent-soft: #E3F0EA;
+  --ok: #2E7D5B;
+  --watch: #A8600F;
+  --alert: #B3301F;
   --on-accent: #FFFFFF;
   --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
   --font-body: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -40,38 +40,48 @@ img{max-width:100%}
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #141A16;
-    --surface: #1C231E;
-    --surface-2: #262F28;
-    --ink: #E3E9E1;
-    --ink-2: #93A291;
-    --line: #333E35;
-    --accent: #CA9EB8;
-    --accent-soft: #312531;
-    --ok: #79B58C;
-    --watch: #D4A651;
-    --alert: #E28F80;
-    --on-accent: #1A1118;
+    --bg: #16181A;
+    --surface: #1F2224;
+    --surface-2: #2A2E30;
+    --ink: #E8EBE9;
+    --ink-2: #9AA3A0;
+    --line: #34393B;
+    --accent: #6FC79B;
+    --accent-soft: #1E2F28;
+    --ok: #6FC79B;
+    --watch: #D9A441;
+    --alert: #E08C7D;
+    --on-accent: #10231A;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #141A16;
-  --surface: #1C231E;
-  --surface-2: #262F28;
-  --ink: #E3E9E1;
-  --ink-2: #93A291;
-  --line: #333E35;
-  --accent: #CA9EB8;
-  --accent-soft: #312531;
-  --ok: #79B58C;
-  --watch: #D4A651;
-  --alert: #E28F80;
-  --on-accent: #1A1118;
+  --bg: #16181A;
+  --surface: #1F2224;
+  --surface-2: #2A2E30;
+  --ink: #E8EBE9;
+  --ink-2: #9AA3A0;
+  --line: #34393B;
+  --accent: #6FC79B;
+  --accent-soft: #1E2F28;
+  --ok: #6FC79B;
+  --watch: #D9A441;
+  --alert: #E08C7D;
+  --on-accent: #10231A;
   color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
+.themebar { display: flex; gap: 0; justify-content: flex-end; margin-bottom: 16px; }
+.themebar button {
+  font: inherit; font-size: 12px; padding: 5px 12px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+}
+.themebar button + button { border-left: none; }
+.themebar button:first-child { border-radius: 7px 0 0 7px; }
+.themebar button:last-child { border-radius: 0 7px 7px 0; }
+.themebar button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.themebar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 body {
   background: var(--bg);
   color: var(--ink);
@@ -322,6 +332,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 <body>
 <div class="wrap">
   <header>
+    <div class="themebar" role="group" aria-label="Nền sáng hay tối">
+      <button type="button" data-theme-set="auto">Theo máy</button>
+      <button type="button" data-theme-set="light">Sáng</button>
+      <button type="button" data-theme-set="dark">Tối</button>
+    </div>
     <p class="eyebrow">Sổ theo dõi</p>
     <h1>Sen đá &amp; xương rồng</h1>
     <p class="sub">Ghi tình hình từng cây theo ngày, để so sánh được trước và sau. Số ngày là thông tin tham khảo — vẫn nên sờ đất trước khi tưới. Dữ liệu lưu ngay trong trình duyệt máy này, không cần đăng nhập.</p>
@@ -466,6 +481,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
   function newId(pre) { return pre + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function byId(id) { return plants.filter(function (p) { return p.id === id; })[0]; }
+
+  var THEME_KEY = 'vuon-theme';
+  function applyTheme(t) {
+    var el = document.documentElement;
+    if (t === 'light' || t === 'dark') el.setAttribute('data-theme', t);
+    else el.removeAttribute('data-theme');
+    var bs = document.querySelectorAll('[data-theme-set]');
+    for (var i = 0; i < bs.length; i++) {
+      bs[i].setAttribute('aria-pressed', bs[i].getAttribute('data-theme-set') === t ? 'true' : 'false');
+    }
+  }
+  function initTheme() {
+    var t = 'auto';
+    try { t = localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) {}
+    applyTheme(t);
+  }
 
   var flashTimer = null;
   function flash(msg, keep) {
@@ -676,6 +707,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   /* ---------- events ---------- */
   document.addEventListener('click', function (ev) {
+    var tb = ev.target.closest('[data-theme-set]');
+    if (tb) {
+      var th = tb.getAttribute('data-theme-set');
+      try { localStorage.setItem(THEME_KEY, th); } catch (e) {}
+      applyTheme(th);
+      return;
+    }
     var b = ev.target.closest('[data-act]');
     if (!b || b.tagName === 'SELECT' || b.tagName === 'FORM') return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), p;
@@ -783,6 +821,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   });
 
   /* ---------- boot ---------- */
+  initTheme();
   load();
   render();
   if (fresh) flash('Dữ liệu được lưu ngay trong trình duyệt máy này. Xem mục “Sao lưu” ở cuối trang trước khi xóa lịch sử duyệt web.');
