@@ -1354,7 +1354,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '<select id="d-mark-' + p.id + '" name="mark"><option value="ok">Ổn</option><option value="watch">Để ý</option><option value="alert">Không ổn</option></select></div>' +
          '</div>' +
          '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú (nếu muốn)</label>' +
-         '<textarea id="d-note-' + p.id + '" name="note" placeholder="Để trống cũng được — chọn ảnh rồi bấm Lưu là xong"></textarea></div>' +
+         '<textarea id="d-note-' + p.id + '" name="note" placeholder="Hôm nay cây thế nào…"></textarea></div>' +
          '<div class="field" style="margin-top:10px"><span class="lbl">Ảnh hoặc video (tối đa 12)</span>' +
          '<div class="filepick">' +
          '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*,video/*" multiple>' +
@@ -1591,7 +1591,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       };
       f.elements.note.value = '';
       if (pin) pin.value = '';
-      if (!files.length) { logs.push(rec); commit(); return; }
+      if (!files.length) { logs.push(rec); commit(); flash('Đã ghi.'); return; }
       flash('Đang xử lý ' + files.length + ' tệp, chờ xíu…', true);
       savePics(files).then(function (res) {
         var ps = res.pics;
