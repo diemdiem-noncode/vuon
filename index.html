@@ -1243,45 +1243,44 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       '<div class="stat"><b>' + logs.length + '</b><span>dòng ghi chú</span></div>';
   }
 
-  function renderGrid() {
-    var g = $('#grid'), keep = null;
-    if (openId) {
-      var ta = document.getElementById('d-note-' + openId);
-      if (ta) {
-        var dd = document.getElementById('d-date-' + openId);
-        var mm = document.getElementById('d-mark-' + openId);
-        var af = document.activeElement;
-        keep = {
-          note: ta.value,
-          date: dd ? dd.value : null,
-          mark: mm ? mm.value : null,
-          focus: af && af.id ? af.id : null,
-          ss: ta.selectionStart, se: ta.selectionEnd
-        };
-      }
+  function grabDetail() {
+    var box = document.querySelector('.card.open .detail');
+    if (!box) return null;
+    var vals = {}, els = box.querySelectorAll('input[id], select[id], textarea[id]');
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].type !== 'file') vals[els[i].id] = els[i].value;
     }
+    var af = document.activeElement;
+    var keep = { vals: vals, focus: (af && af.id && vals.hasOwnProperty(af.id)) ? af.id : null,
+                 ss: null, se: null };
+    if (keep.focus) {
+      try { var fe = document.getElementById(keep.focus);
+            keep.ss = fe.selectionStart; keep.se = fe.selectionEnd; } catch (e) {}
+    }
+    return keep;
+  }
+
+  function putDetail(keep) {
+    if (!keep) return;
+    Object.keys(keep.vals).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.type !== 'file') el.value = keep.vals[id];
+    });
+    if (!keep.focus) return;
+    var fe = document.getElementById(keep.focus);
+    if (!fe) return;
+    fe.focus();
+    if (keep.ss != null) { try { fe.setSelectionRange(keep.ss, keep.se); } catch (e) {} }
+  }
+
+  function renderGrid() {
+    var g = $('#grid'), keep = grabDetail();
     if (!plants.length) {
       g.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Vườn còn trống</b>Bấm “Thêm cây” để thêm bé đầu tiên.</div>';
       return;
     }
     g.innerHTML = plants.map(card).join('');
-    if (keep) {
-      var ta2 = document.getElementById('d-note-' + openId);
-      if (ta2) {
-        ta2.value = keep.note;
-        var d2 = document.getElementById('d-date-' + openId);
-        var m2 = document.getElementById('d-mark-' + openId);
-        if (d2 && keep.date) d2.value = keep.date;
-        if (m2 && keep.mark) m2.value = keep.mark;
-        if (keep.focus) {
-          var fe = document.getElementById(keep.focus);
-          if (fe) {
-            fe.focus();
-            if (fe === ta2 && keep.ss != null) { try { ta2.setSelectionRange(keep.ss, keep.se); } catch (e) {} }
-          }
-        }
-      }
-    }
+    putDetail(keep);
     hydratePics();
   }
 
@@ -1341,6 +1340,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu lại</button></div>' +
          '</form>';
     h += '<div class="fields">' +
+         '<div class="field" style="flex:2 1 180px"><label for="e-name-' + p.id + '">Tên cây</label>' +
+         '<input id="e-name-' + p.id + '" data-act="set-name" data-id="' + p.id + '" value="' + esc(p.name) + '"></div>' +
+         '<div class="field" style="flex:2 1 180px"><label for="e-sp-' + p.id + '">Cây gì (nếu biết)</label>' +
+         '<input id="e-sp-' + p.id + '" data-act="set-sp" data-id="' + p.id + '" value="' + esc(p.species || '') + '" placeholder="Astrophytum asterias"></div>' +
          '<div class="field"><label for="e-stage-' + p.id + '">Rễ tới đâu rồi</label><select id="e-stage-' + p.id + '" data-act="set-stage" data-id="' + p.id + '">' +
          opts(STAGES, p.stage, true) + '</select></div>' +
          '<div class="field"><label for="e-spot-' + p.id + '">Đang để chỗ nào</label><select id="e-spot-' + p.id + '" data-act="set-spot" data-id="' + p.id + '">' +
@@ -1591,6 +1594,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!act) return;
     var p = byId(el.getAttribute('data-id'));
     if (!p) return;
+    if (act === 'set-name') {
+      var nm = el.value.trim();
+      if (!nm) { el.value = p.name; flash('Cây nào cũng cần một cái tên.'); return; }
+      p.name = nm; commit(); return;
+    }
+    if (act === 'set-sp') { p.species = el.value.trim(); commit(); return; }
     if (act === 'set-stage') { p.stage = el.value; commit(); }
     if (act === 'set-spot')  { p.spot  = el.value; commit(); }
     if (act === 'set-wev')   { p.waterEvery = parseInt(el.value, 10) || 7; commit(); }
