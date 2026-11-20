@@ -545,7 +545,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   var STAGES = {
     'new':     { label: 'Mới về',     hint: 'Chưa ra rễ. Để khô ráo cho vết cắt chai lại — chưa tưới, chưa bón.' },
     'rooting': { label: 'Đang ra rễ', hint: 'Ẩm nhẹ ở đáy, mặt khô. Đừng để khô hẳn, và đừng nhấc lên kiểm tra — mỗi lần nhấc là gãy rễ non. Chưa bón: rễ non chưa ăn được phân, bón vào là xót rễ.' },
-    'settled': { label: 'Đã bám rễ',  hint: 'Tưới đẫm tới khi chảy ra đáy, rồi để khô hẳn mới tưới lại. Bón pha loãng nửa liều, 2 tuần một lần — phân tan nhanh thì tưới một cái là trôi hết, cây chỉ ăn được vài ngày.' }
+    'settled': { label: 'Đã bám rễ',  hint: 'Tưới đẫm tới khi chảy ra đáy, rồi để khô hẳn mới tưới lại. Muốn bón thì pha nửa liều vào nước tưới, cứ 2–3 lần tưới mới bón một lần, và chỉ bón khi cây đang mọc. Không thấy mọc, hoặc cây đang yếu, thì ngưng.' }
   };
   var SPOTS = { sun: 'Nắng', bright: 'Mát sáng', shade: 'Bóng râm' };
   var MARKS = { ok: 'Ổn', watch: 'Theo dõi', alert: 'Có vấn đề' };
@@ -554,8 +554,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   var SEED = {
     plants: [
       { id: 'p-mau', name: 'Cây mẫu — đổi tên này', species: 'Ghi loại cây ở đây, hoặc để trống',
-        stage: 'rooting', spot: 'shade', lastWater: '', lastFeed: '',
-        waterEvery: 7, feedEvery: 0, added: today() }
+        stage: 'rooting', spot: 'shade', lastWater: '',
+        waterEvery: 7, added: today() }
     ],
     logs: []
   };
@@ -573,7 +573,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return Math.round(ms / 86400000);
   }
   var WATER_OPTS = [2, 3, 5, 7, 10, 14, 21, 30];
-  var FEED_OPTS  = [0, 14, 21, 30, 60];
 
   function everyText(d) {
     if (!d) return 'không đặt';
@@ -587,11 +586,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function waterEvery(p) {
     return p.waterEvery > 0 ? p.waterEvery : (waterGap(p) || 7);
   }
-  function feedEvery(p) {
-    if (typeof p.feedEvery === 'number') return p.feedEvery;
-    return p.stage === 'settled' ? 14 : 0;
-  }
-
   // days left until the next time; negative = overdue, null = never done / not set
   function dueIn(last, every) {
     if (!every) return null;
@@ -1183,9 +1177,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var w = dueIn(p.lastWater, waterEvery(p));
       if (waterEvery(p) && (w === null || w <= 0))
         out.push({ p: p, what: 'Tưới', act: 'water', n: w });
-      var f = dueIn(p.lastFeed, feedEvery(p));
-      if (feedEvery(p) && (f === null || f <= 0))
-        out.push({ p: p, what: 'Bón', act: 'feed', n: f });
     });
     out.sort(function (a, b) {
       if (a.n === null) return 1;
@@ -1221,9 +1212,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function nextInDays() {
     var best = null;
     plants.forEach(function (p) {
-      [dueIn(p.lastWater, waterEvery(p)), dueIn(p.lastFeed, feedEvery(p))].forEach(function (n) {
-        if (n !== null && n > 0 && (best === null || n < best)) best = n;
-      });
+      var n = dueIn(p.lastWater, waterEvery(p));
+      if (n !== null && n > 0 && (best === null || n < best)) best = n;
     });
     return best === null ? 'chưa đặt lịch' : (best === 1 ? '1 ngày' : best + ' ngày');
   }
@@ -1244,9 +1234,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (p.stage === 'rooting' || p.stage === 'new') rooting++;
       var w = dueIn(p.lastWater, waterEvery(p));
       var overdue = waterEvery(p) && (w === null || w <= 0);
-      var f = dueIn(p.lastFeed, feedEvery(p));
-      var needFeed = feedEvery(p) && (f === null || f <= 0);
-      if (overdue || needFeed || lastMark(p.id) === 'alert') flag++;
+      if (overdue || lastMark(p.id) === 'alert') flag++;
     });
     $('#stats').innerHTML =
       '<div class="stat"><b>' + plants.length + '</b><span>cây đang theo dõi</span></div>' +
@@ -1297,12 +1285,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     hydratePics();
   }
 
-  function feedOffText(p) {
-    if (p.stage === 'settled') return 'chưa đặt lịch';
-    return 'chưa bón khi đang ra rễ';
-  }
-
-  function meterRow(label, last, every, offText) {
+  function meterRow(label, last, every) {
     var n = dueIn(last, every), cls = dueClass(n);
     var pct = 0;
     if (every) {
@@ -1311,7 +1294,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }
     return '<div class="meter">' +
       '<div class="m-row"><dt>' + label +
-        '<span class="m-every">' + (every ? everyText(every) : (offText || 'không đặt')) + '</span></dt>' +
+        '<span class="m-every">' + everyText(every) + '</span></dt>' +
       '<dd class="' + cls + '">' + (every ? dueText(n) : '—') + '</dd></div>' +
       '<div class="m-bar' + (every ? '' : ' off') + '">' +
         '<i class="' + cls + '" style="width:' + (every ? pct : 0) + '%"></i></div>' +
@@ -1331,11 +1314,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '<span class="tag">' + (SPOTS[p.spot] || '—') + '</span></div>';
     h += '<dl class="meters">' +
          meterRow('Tưới', p.lastWater, waterEvery(p)) +
-         meterRow('Bón', p.lastFeed, feedEvery(p), feedOffText(p)) +
          '</dl>';
     h += '<div class="card-acts">' +
          '<button class="btn btn-sm" type="button" data-act="water" data-id="' + p.id + '">Đã tưới</button>' +
-         '<button class="btn btn-sm" type="button" data-act="feed" data-id="' + p.id + '">Đã bón</button>' +
          '<button class="btn btn-sm" type="button" data-act="open" data-id="' + p.id + '">' + (isOpen ? 'Thu lại' : 'Ghi chú & lịch sử') + '</button>' +
          '</div>';
     if (isOpen) h += detail(p);
@@ -1366,8 +1347,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          opts(SPOTS, p.spot, false) + '</select></div>' +
          '<div class="field"><label for="e-wev-' + p.id + '">Tưới lặp lại</label><select id="e-wev-' + p.id + '" data-act="set-wev" data-id="' + p.id + '">' +
          everyOpts(WATER_OPTS, waterEvery(p)) + '</select></div>' +
-         '<div class="field"><label for="e-fev-' + p.id + '">Bón lặp lại</label><select id="e-fev-' + p.id + '" data-act="set-fev" data-id="' + p.id + '">' +
-         everyOpts(FEED_OPTS, feedEvery(p)) + '</select></div>' +
          '</div>' +
          '<p class="sp" style="margin:4px 0 0">Lịch chỉ để nhắc. Trước khi tưới vẫn nên sờ đất — đất còn ẩm thì khoan, dù tới ngày.</p>';
     h += '<div><h3 style="font-size:14px;margin:0 0 6px">Lịch sử</h3>';
@@ -1387,7 +1366,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var has = false, out = list.map(function (d) {
       if (d === cur) has = true;
       return '<option value="' + d + '"' + (d === cur ? ' selected' : '') + '>' +
-             (d ? everyText(d) : 'Không bón') + '</option>';
+             everyText(d) + '</option>';
     });
     if (!has) out.unshift('<option value="' + cur + '" selected>' + everyText(cur) + '</option>');
     return out.join('');
@@ -1481,7 +1460,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }
     if (act === 'open') { openId = openId === id ? null : id; confirmDel = null; renderGrid(); return; }
     if (act === 'water') { p = byId(id); if (p) { p.lastWater = today(); commit(); } return; }
-    if (act === 'feed')  { p = byId(id); if (p) { p.lastFeed  = today(); commit(); } return; }
     if (act === 'ask-del') { confirmDel = id; renderGrid(); return; }
     if (act === 'cancel-del') { confirmDel = null; renderGrid(); return; }
     if (act === 'do-del') {
@@ -1558,7 +1536,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         species: f.elements.species.value.trim(),
         stage: f.elements.stage.value,
         spot: f.elements.spot.value,
-        lastWater: '', lastFeed: '', waterEvery: 7, feedEvery: 0,
+        lastWater: '', waterEvery: 7,
         added: today()
       });
       f.reset();
@@ -1613,22 +1591,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!act) return;
     var p = byId(el.getAttribute('data-id'));
     if (!p) return;
-    if (act === 'set-stage') {
-      p.stage = el.value;
-      if (!p.feedSet) {
-        if (p.stage === 'settled' && !p.feedEvery) {
-          p.feedEvery = 14;
-          flash('Cây đã bám rễ — bật lịch bón mỗi 2 tuần. Đổi hoặc tắt được ngay dưới đây.');
-        } else if (p.stage !== 'settled' && p.feedEvery) {
-          p.feedEvery = 0;
-          flash('Đang ra rễ thì ngưng bón — đã tắt lịch bón cho cây này.');
-        }
-      }
-      commit();
-    }
+    if (act === 'set-stage') { p.stage = el.value; commit(); }
     if (act === 'set-spot')  { p.spot  = el.value; commit(); }
     if (act === 'set-wev')   { p.waterEvery = parseInt(el.value, 10) || 7; commit(); }
-    if (act === 'set-fev')   { p.feedEvery  = parseInt(el.value, 10) || 0; p.feedSet = true; commit(); }
   });
 
   document.addEventListener('keydown', function (ev) {
