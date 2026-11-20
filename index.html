@@ -851,6 +851,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     });
   }
 
+  function videoExt(f) {
+    var m = /\.([a-z0-9]{2,4})$/i.exec(f.name || '');
+    if (m) return m[1].toLowerCase();
+    var t = (f.type || '').split('/')[1] || '';
+    t = t.split(';')[0];
+    if (t === 'quicktime') return 'mov';
+    return /^[a-z0-9]{2,4}$/.test(t) ? t : 'mp4';
+  }
+
   function durText(s) {
     s = Math.max(0, Math.round(s || 0));
     var m = Math.floor(s / 60);
@@ -869,7 +878,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
           if (!ok) { skipped.push('"' + f.name + '" không lưu được (hết chỗ trống?)'); return null; }
           var rec = { id: id, taken: meta.taken, src: meta.src, kind: 'video',
                       dur: vm && vm.dur ? Math.round(vm.dur) : 0,
-                      ext: (f.type.indexOf('quicktime') > -1 || /\.mov$/i.test(f.name)) ? 'mov' : 'mp4' };
+                      ext: videoExt(f) };
           if (vm && vm.poster) return putPic(id + ':p', vm.poster).then(function () { return rec; });
           return rec;
         });
@@ -938,7 +947,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var day = picDay(p, lbLog);
     $('#lbWhen').textContent = p.src === 'exif'
       ? 'Chụp ' + day
-      : (day ? '~ ' + day + (p.src === 'file' ? ' (ngày tệp ảnh)' : ' (ngày ghi chú)') : '');
+      : (day ? '~ ' + day + (p.src === 'file' ? ' (ngày tệp)' : ' (ngày ghi chú)') : '');
     $('#lbGap').textContent = gapText(p);
     $('#lbCount').textContent = lbSet.length > 1 ? (lbIdx + 1) + ' / ' + lbSet.length : '';
     $('#lbPrev').disabled = lbSet.length < 2;
