@@ -132,7 +132,19 @@ img{max-width:100%}
 .lb-bar .btn, .lb-bar a.btn {
   background: #FFFFFF; color: #16181A; border-color: #FFFFFF; text-decoration: none;
 }
-input[type="file"] { padding: 7px 10px; font-size: 13px; }
+.filepick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.filepick input[type="file"] {
+  position: absolute; width: 1px; height: 1px; opacity: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.field .filebtn, .filebtn {
+  display: inline-block; cursor: pointer; font: inherit; font-size: 13px;
+  font-weight: 500; text-transform: none; letter-spacing: normal;
+  padding: 8px 14px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.filepick input[type="file"]:focus-visible + .filebtn { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filename { font-size: 12px; color: var(--ink-2); }
 .themebar { display: flex; gap: 0; justify-content: flex-end; margin-bottom: 16px; }
 .themebar button {
   font: inherit; font-size: 12px; padding: 5px 12px; cursor: pointer;
@@ -328,7 +340,11 @@ h2 {
   margin: 0; font-size: 13px; color: var(--ink-2);
   background: var(--accent-soft); border-radius: 10px; padding: 11px 13px;
 }
-.card-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+.card-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; }
+.btn-ico {
+  margin-left: auto; min-width: 42px; padding: 7px 12px;
+  font-size: 15px; line-height: 1.1; text-align: center;
+}
 
 /* --- expanded detail --- */
 .detail {
@@ -348,7 +364,7 @@ h2 {
 }
 .fields { display: flex; flex-wrap: wrap; gap: 10px; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 150px; }
-.field label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.field label, .field .lbl { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
 input, select, textarea {
   font: inherit;
   font-size: 14px;
@@ -1237,7 +1253,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (overdue || lastMark(p.id) === 'alert') flag++;
     });
     $('#stats').innerHTML =
-      '<div class="stat"><b>' + plants.length + '</b><span>cây đang nuôi</span></div>' +
+      '<div class="stat"><b>' + plants.length + '</b><span>cây đang trồng</span></div>' +
       '<div class="stat"><b>' + rooting + '</b><span>đang ra rễ</span></div>' +
       '<div class="stat' + (flag ? ' flag' : '') + '"><b>' + flag + '</b><span>cần ngó lại</span></div>' +
       '<div class="stat"><b>' + logs.length + '</b><span>dòng ghi chú</span></div>';
@@ -1316,7 +1332,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '</dl>';
     h += '<div class="card-acts">' +
          '<button class="btn btn-sm" type="button" data-act="water" data-id="' + p.id + '">Tưới rồi</button>' +
-         '<button class="btn btn-sm" type="button" data-act="open" data-id="' + p.id + '">' + (isOpen ? 'Thu lại' : 'Mở sổ cây') + '</button>' +
+         '<button class="btn btn-sm btn-ico" type="button" data-act="open" data-id="' + p.id + '"' +
+           ' aria-expanded="' + (isOpen ? 'true' : 'false') + '"' +
+           ' aria-label="' + (isOpen ? 'Thu lại' : 'Mở ra để xem và ghi chú') + '"' +
+           ' title="' + (isOpen ? 'Thu lại' : 'Mở ra để xem và ghi chú') + '">' +
+           (isOpen ? '▴' : '▾') + '</button>' +
          '</div>';
     if (isOpen) h += detail(p);
     return h + '</article>';
@@ -1335,8 +1355,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '</div>' +
          '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú (nếu muốn)</label>' +
          '<textarea id="d-note-' + p.id + '" name="note" placeholder="Để trống cũng được — chọn ảnh rồi bấm Lưu là xong"></textarea></div>' +
-         '<div class="field" style="margin-top:10px"><label for="d-pic-' + p.id + '">Ảnh hoặc video (tối đa 12)</label>' +
-         '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*,video/*" multiple></div>' +
+         '<div class="field" style="margin-top:10px"><span class="lbl">Ảnh hoặc video (tối đa 12)</span>' +
+         '<div class="filepick">' +
+         '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*,video/*" multiple>' +
+         '<label class="filebtn" for="d-pic-' + p.id + '">Chọn ảnh hoặc video</label>' +
+         '<span class="filename">chưa chọn gì</span>' +
+         '</div></div>' +
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu lại</button></div>' +
          '</form>';
     h += '<div class="fields">' +
@@ -1590,6 +1614,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   document.addEventListener('change', function (ev) {
     var el = ev.target;
     if (el.id === 'filter') { filter = el.value; renderFeed(); return; }
+    if (el.type === 'file' && el.name === 'pic') {
+      var tag = el.parentNode && el.parentNode.querySelector('.filename');
+      if (tag) {
+        var n = el.files ? el.files.length : 0;
+        tag.textContent = n ? 'đã chọn ' + n + ' tệp' : 'chưa chọn gì';
+      }
+      return;
+    }
     var act = el.getAttribute && el.getAttribute('data-act');
     if (!act) return;
     var p = byId(el.getAttribute('data-id'));
