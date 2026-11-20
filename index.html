@@ -72,9 +72,15 @@ img{max-width:100%}
 }
 
 * { box-sizing: border-box; }
-.thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 9px; }
+.pic { margin: 0; width: 86px; }
+.picdate {
+  display: block; font-size: 10px; line-height: 1.35; color: var(--ink-2);
+  margin-bottom: 3px; white-space: nowrap; letter-spacing: .01em;
+}
+.picdate.guess { font-style: italic; opacity: .82; }
 .thumb {
-  width: 64px; height: 64px; object-fit: cover; cursor: pointer;
+  width: 86px; height: 86px; object-fit: cover; cursor: pointer; display: block;
   border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2);
 }
 .lightbox {
@@ -82,8 +88,20 @@ img{max-width:100%}
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
 }
-.lightbox img { max-width: 100%; max-height: 78vh; object-fit: contain; border-radius: 8px; }
-.lb-bar { display: flex; gap: 8px; }
+.lb-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+.lb-when { color: #FFFFFF; font-size: 13px; line-height: 1.3; }
+.lb-stage {
+  flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.lightbox img {
+  max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px;
+  cursor: zoom-in; transition: transform .18s ease;
+}
+.lightbox img.zoomed { cursor: zoom-out; transition: none; }
+.lb-bar { display: flex; gap: 8px; align-items: center; }
+.lb-count { color: #FFFFFF; font-size: 12px; padding: 0 6px; }
+.lb-bar .btn[disabled] { opacity: .35; }
 .lb-bar .btn, .lb-bar a.btn {
   background: #FFFFFF; color: #16181A; border-color: #FFFFFF; text-decoration: none;
 }
@@ -429,11 +447,21 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   </section>
 </div>
 <div class="lightbox" id="lightbox" hidden>
-  <div class="lb-bar">
-    <a class="btn btn-sm" id="lbDown" download>Tải ảnh về</a>
-    <button class="btn btn-sm" type="button" data-act="lb-close">Đóng</button>
+  <div class="lb-top">
+    <span class="lb-when" id="lbWhen"></span>
+    <div class="lb-bar">
+      <a class="btn btn-sm" id="lbDown" download>Tải ảnh về</a>
+      <button class="btn btn-sm" type="button" data-act="lb-close">Đóng</button>
+    </div>
   </div>
-  <img id="lbImg" alt="Ảnh ghi chú phóng to">
+  <div class="lb-stage" id="lbStage">
+    <img id="lbImg" alt="Ảnh ghi chú phóng to">
+  </div>
+  <div class="lb-bar">
+    <button class="btn btn-sm" type="button" id="lbPrev" data-act="lb-prev" aria-label="Ảnh trước">‹</button>
+    <span class="lb-count" id="lbCount"></span>
+    <button class="btn btn-sm" type="button" id="lbNext" data-act="lb-next" aria-label="Ảnh sau">›</button>
+  </div>
 </div>
 <p class="status" id="status" hidden></p>
 
@@ -506,6 +534,120 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function newId(pre) { return pre + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function byId(id) { return plants.filter(function (p) { return p.id === id; })[0]; }
 
+  /* ---------- ngày chụp (EXIF) ---------- */
+  function isoDay(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+           '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function readHead(file) {
+    var blob = file.slice ? file.slice(0, 524288) : file;
+    if (blob.arrayBuffer) return blob.arrayBuffer().catch(function () { return null; });
+    return new Promise(function (res) {
+      try {
+        var fr = new FileReader();
+        fr.onload = function () { res(fr.result); };
+        fr.onerror = function () { res(null); };
+        fr.readAsArrayBuffer(blob);
+      } catch (e) { res(null); }
+    });
+  }
+
+  function readTiff(dv, u8, t) {
+    if (t + 8 > u8.length) return null;
+    var le;
+    var bom = dv.getUint16(t, false);
+    if (bom === 0x4949) le = true;
+    else if (bom === 0x4D4D) le = false;
+    else return null;
+    if (dv.getUint16(t + 2, le) !== 42) return null;
+
+    var found = {};
+    function ascii(off, n) {
+      var out = '';
+      for (var i = 0; i < n && off + i < u8.length; i++) {
+        var c = u8[off + i];
+        if (!c) break;
+        out += String.fromCharCode(c);
+      }
+      return out;
+    }
+    function walk(off, depth) {
+      if (depth > 2 || off < t || off + 2 > u8.length) return;
+      var cnt = dv.getUint16(off, le);
+      if (cnt > 400) return;
+      for (var k = 0; k < cnt; k++) {
+        var e = off + 2 + k * 12;
+        if (e + 12 > u8.length) return;
+        var tag = dv.getUint16(e, le), typ = dv.getUint16(e + 2, le), num = dv.getUint32(e + 4, le);
+        if (tag === 0x8769) { walk(t + dv.getUint32(e + 8, le), depth + 1); continue; }
+        if (typ !== 2 || num < 19 || num > 64) continue;
+        if (tag !== 0x9003 && tag !== 0x9004 && tag !== 0x0132) continue;
+        var vo = num > 4 ? t + dv.getUint32(e + 8, le) : e + 8;
+        var s = ascii(vo, num);
+        if (/^\d{4}:\d{2}:\d{2} \d{2}:\d{2}/.test(s)) found[tag] = s;
+      }
+    }
+    walk(t + dv.getUint32(t + 4, le), 0);
+    var raw = found[0x9003] || found[0x9004] || found[0x0132];
+    if (!raw) return null;
+    return raw.slice(0, 4) + '-' + raw.slice(5, 7) + '-' + raw.slice(8, 10);
+  }
+
+  function exifDate(buf) {
+    if (!buf) return null;
+    var u8 = new Uint8Array(buf), dv = new DataView(buf), from = 0, tries = 0;
+    while (tries < 4) {
+      tries++;
+      var s = -1;
+      for (var i = from; i + 5 < u8.length; i++) {
+        if (u8[i] === 0x45 && u8[i + 1] === 0x78 && u8[i + 2] === 0x69 &&
+            u8[i + 3] === 0x66 && u8[i + 4] === 0 && u8[i + 5] === 0) { s = i + 6; break; }
+      }
+      if (s < 0) return null;
+      from = s;
+      var got = null;
+      try { got = readTiff(dv, u8, s); } catch (e) { got = null; }
+      if (got) return got;
+    }
+    return null;
+  }
+
+  function takenOf(file) {
+    return readHead(file).then(function (buf) {
+      var d = null;
+      try { d = exifDate(buf); } catch (e) { d = null; }
+      if (d && d > '1995-01-01' && d <= today()) return { taken: d, src: 'exif' };
+      var ms = file.lastModified;
+      if (ms) {
+        var dt = new Date(ms);
+        if (!isNaN(dt.getTime())) return { taken: isoDay(dt), src: 'file' };
+      }
+      return { taken: null, src: null };
+    }).catch(function () { return { taken: null, src: null }; });
+  }
+
+  function picList(l) {
+    var out = (((l && l.pics) || []).map(function (p) {
+      if (typeof p === 'string') return { id: p, taken: null, src: null };
+      return p && p.id ? { id: p.id, taken: p.taken || null, src: p.src || null } : null;
+    })).filter(Boolean);
+    out.sort(function (x, y) {
+      if (x.taken && y.taken) return x.taken < y.taken ? -1 : (x.taken > y.taken ? 1 : 0);
+      if (x.taken) return -1;
+      if (y.taken) return 1;
+      return 0;
+    });
+    return out;
+  }
+
+  function picDay(p, l) {
+    var d = (p && p.taken) || (l && l.date) || '';
+    if (!d) return '';
+    var q = d.split('-');
+    return q[2] + '/' + q[1] + '/' + q[0];
+  }
+
   /* ---------- kho ảnh (IndexedDB) ---------- */
   var IDB_NAME = 'vuon-anh', IDB_STORE = 'anh', idb = null, urlCache = {};
   function openIdb() {
@@ -561,17 +703,21 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
 
   function savePics(files) {
-    var ids = [], chain = Promise.resolve();
-    files.slice(0, 6).forEach(function (f) {
+    var out = [], chain = Promise.resolve();
+    files.slice(0, 12).forEach(function (f) {
       chain = chain.then(function () {
-        return shrink(f).then(function (b) {
-          if (!b) return;
-          var id = newId('a');
-          return putPic(id, b).then(function (ok) { if (ok) ids.push(id); });
+        return takenOf(f).then(function (meta) {
+          return shrink(f).then(function (b) {
+            if (!b) return;
+            var id = newId('a');
+            return putPic(id, b).then(function (ok) {
+              if (ok) out.push({ id: id, taken: meta.taken, src: meta.src });
+            });
+          });
         });
       });
     });
-    return chain.then(function () { return ids; });
+    return chain.then(function () { return out; });
   }
 
   function hydratePics() {
@@ -586,17 +732,80 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     })(els[i]);
   }
 
-  function openPic(id) {
-    getPic(id).then(function (b) {
+  var lbSet = [], lbIdx = 0, lbLog = null, lbZoom = 0, lbPan = { x: 0, y: 0 };
+
+  function openPic(picId, logId) {
+    var l = logs.filter(function (x) { return x.id === logId; })[0];
+    lbLog = l || null;
+    lbSet = l ? picList(l) : [{ id: picId, taken: null, src: null }];
+    lbIdx = 0;
+    for (var i = 0; i < lbSet.length; i++) if (lbSet[i].id === picId) lbIdx = i;
+    $('#lightbox').hidden = false;
+    showPic();
+  }
+
+  function closeLb() {
+    resetZoom();
+    $('#lightbox').hidden = true;
+  }
+
+  function showPic() {
+    var p = lbSet[lbIdx];
+    if (!p) return;
+    resetZoom();
+    var day = picDay(p, lbLog);
+    $('#lbWhen').textContent = p.src === 'exif'
+      ? 'Chụp ' + day
+      : (day ? '~ ' + day + (p.src === 'file' ? ' (ngày tệp ảnh)' : ' (ngày ghi chú)') : '');
+    $('#lbCount').textContent = lbSet.length > 1 ? (lbIdx + 1) + ' / ' + lbSet.length : '';
+    $('#lbPrev').disabled = lbSet.length < 2;
+    $('#lbNext').disabled = lbSet.length < 2;
+    getPic(p.id).then(function (b) {
       if (!b) { flash('Không tìm thấy ảnh này trên máy.'); return; }
-      var u = urlCache[id];
-      if (!u) { try { u = urlCache[id] = URL.createObjectURL(b); } catch (e) { return; } }
+      var u = urlCache[p.id];
+      if (!u) { try { u = urlCache[p.id] = URL.createObjectURL(b); } catch (e) { return; } }
       $('#lbImg').src = u;
       var a = $('#lbDown');
       a.href = u;
-      a.download = 'cay-' + id + '.jpg';
-      $('#lightbox').hidden = false;
+      a.download = 'cay-' + (p.taken || 'anh') + '-' + p.id + '.jpg';
     });
+  }
+
+  function stepPic(d) {
+    if (lbSet.length < 2) return;
+    lbIdx = (lbIdx + d + lbSet.length) % lbSet.length;
+    showPic();
+  }
+
+  function applyPan() {
+    var im = $('#lbImg');
+    if (!im) return;
+    im.style.transform = lbZoom
+      ? 'translate(' + lbPan.x + 'px,' + lbPan.y + 'px) scale(2.5)' : '';
+  }
+
+  function resetZoom() {
+    lbZoom = 0; lbPan.x = 0; lbPan.y = 0;
+    var im = $('#lbImg');
+    if (im) { im.classList.remove('zoomed'); im.style.transformOrigin = ''; im.style.transform = ''; }
+  }
+
+  function toggleZoom(pt) {
+    var im = $('#lbImg');
+    if (!im) return;
+    if (lbZoom) { resetZoom(); return; }
+    lbZoom = 1; lbPan.x = 0; lbPan.y = 0;
+    var ox = 50, oy = 50;
+    if (pt) {
+      var r = im.getBoundingClientRect();
+      if (r.width && r.height) {
+        ox = Math.max(0, Math.min(100, ((pt.clientX - r.left) / r.width) * 100));
+        oy = Math.max(0, Math.min(100, ((pt.clientY - r.top) / r.height) * 100));
+      }
+    }
+    im.style.transformOrigin = ox + '% ' + oy + '%';
+    im.classList.add('zoomed');
+    applyPan();
   }
 
   function showUsage() {
@@ -778,7 +987,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '</div>' +
          '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú</label>' +
          '<textarea id="d-note-' + p.id + '" name="note" placeholder="VD: vết bạc màu vẫn khô và cứng, chưa lan thêm" required></textarea></div>' +
-         '<div class="field" style="margin-top:10px"><label for="d-pic-' + p.id + '">Ảnh (tùy chọn, tối đa 6)</label>' +
+         '<div class="field" style="margin-top:10px"><label for="d-pic-' + p.id + '">Ảnh (tùy chọn, tối đa 12)</label>' +
          '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*" multiple></div>' +
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu ghi chú</button></div>' +
          '</form>';
@@ -813,11 +1022,20 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return '<li><span class="when">' + shortDate(l.date) + '</span>' +
       '<div class="entry">' +
       '<p>' + esc(l.note) + '</p>' +
-      (l.pics && l.pics.length
-        ? '<div class="thumbs">' + l.pics.map(function (pid) {
-            return '<img class="thumb" data-photo="' + pid + '" data-pic="' + pid + '" alt="Ảnh ghi chú" loading="lazy">';
-          }).join('') + '</div>'
-        : '') +
+      (function () {
+        var ps = picList(l);
+        if (!ps.length) return '';
+        return '<div class="thumbs">' + ps.map(function (p) {
+          var day = picDay(p, l), sure = p.src === 'exif';
+          return '<figure class="pic">' +
+            '<span class="picdate' + (sure ? '' : ' guess') + '">' +
+              (sure ? '' : '~') + day + '</span>' +
+            '<img class="thumb" data-photo="' + p.id + '" data-pic="' + p.id + '"' +
+              ' data-log="' + l.id + '" loading="lazy"' +
+              ' alt="Ảnh ngày ' + day + '" title="' + (sure ? 'Ngày chụp ' : 'Khoảng ') + day + '">' +
+            '</figure>';
+        }).join('') + '</div>';
+      })() +
       '<div class="meta">' +
       (withName && p ? '<span class="who">' + esc(p.name) + '</span>' : '') +
       '<span class="mark ' + (l.mark || '') + '" style="margin:0"></span>' + (MARKS[l.mark] || '') +
@@ -848,8 +1066,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   /* ---------- events ---------- */
   document.addEventListener('click', function (ev) {
     var pic = ev.target.closest('[data-pic]');
-    if (pic) { openPic(pic.getAttribute('data-pic')); return; }
-    if (ev.target.id === 'lightbox') { $('#lightbox').hidden = true; return; }
+    if (pic) { openPic(pic.getAttribute('data-pic'), pic.getAttribute('data-log')); return; }
+    if (ev.target.id === 'lightbox' || ev.target.id === 'lbStage') { closeLb(); return; }
+    if (ev.target.id === 'lbImg' && lbZoom) { resetZoom(); return; }
     var tb = ev.target.closest('[data-theme-set]');
     if (tb) {
       var th = tb.getAttribute('data-theme-set');
@@ -861,7 +1080,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!b || b.tagName === 'SELECT' || b.tagName === 'FORM') return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), p;
 
-    if (act === 'lb-close') { $('#lightbox').hidden = true; return; }
+    if (act === 'lb-close') { closeLb(); return; }
+    if (act === 'lb-prev') { stepPic(-1); return; }
+    if (act === 'lb-next') { stepPic(1); return; }
     if (act === 'toggle-add') {
       var f = $('#addForm');
       f.hidden = !f.hidden;
@@ -877,7 +1098,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       confirmDel = null;
       if (openId === id) openId = null;
       logs.forEach(function (l) {
-        if (l.plantId === id && l.pics) l.pics.forEach(delPic);
+        if (l.plantId === id) picList(l).forEach(function (q) { delPic(q.id); });
       });
       logs = logs.filter(function (l) { return l.plantId !== id; });
       plants = plants.filter(function (x) { return x.id !== id; });
@@ -886,7 +1107,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }
     if (act === 'del-log') {
       var gone = logs.filter(function (l) { return l.id === id; })[0];
-      if (gone && gone.pics) gone.pics.forEach(delPic);
+      if (gone) picList(gone).forEach(function (q) { delPic(q.id); });
       logs = logs.filter(function (l) { return l.id !== id; });
       commit();
       return;
@@ -960,12 +1181,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (pin) pin.value = '';
       if (!files.length) { logs.push(rec); commit(); return; }
       flash('Đang xử lý ' + files.length + ' ảnh…', true);
-      savePics(files).then(function (ids) {
-        rec.pics = ids;
+      savePics(files).then(function (ps) {
+        rec.pics = ps;
         logs.push(rec);
         commit();
         showUsage();
-        flash(ids.length ? 'Đã lưu ' + ids.length + ' ảnh.' : 'Không đọc được ảnh nào.');
+        var dated = ps.filter(function (p) { return p.src === 'exif'; }).length;
+        flash(ps.length
+          ? 'Đã lưu ' + ps.length + ' ảnh' + (dated ? ' — ' + dated + ' ảnh đọc được ngày chụp.' : '.')
+          : 'Không đọc được ảnh nào.');
       });
     }
   });
@@ -982,8 +1206,47 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   });
 
   document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape' && !$('#lightbox').hidden) $('#lightbox').hidden = true;
+    if ($('#lightbox').hidden) return;
+    if (ev.key === 'Escape') { closeLb(); return; }
+    if (ev.key === 'ArrowLeft') { stepPic(-1); return; }
+    if (ev.key === 'ArrowRight') { stepPic(1); return; }
   });
+
+  document.addEventListener('dblclick', function (ev) {
+    if ($('#lightbox').hidden || ev.target.id !== 'lbImg') return;
+    ev.preventDefault();
+    toggleZoom(ev);
+  });
+
+  (function () {
+    var sx = 0, sy = 0, px = 0, py = 0, moved = false, lastTap = 0;
+    function inStage(ev) {
+      return !$('#lightbox').hidden && ev.target.closest && ev.target.closest('#lbStage');
+    }
+    document.addEventListener('touchstart', function (ev) {
+      if (!inStage(ev) || ev.touches.length !== 1) return;
+      var t = ev.touches[0];
+      sx = t.clientX; sy = t.clientY; px = lbPan.x; py = lbPan.y; moved = false;
+    }, { passive: true });
+    document.addEventListener('touchmove', function (ev) {
+      if (!inStage(ev) || ev.touches.length !== 1) return;
+      var t = ev.touches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) moved = true;
+      if (lbZoom) { lbPan.x = px + dx; lbPan.y = py + dy; applyPan(); }
+    }, { passive: true });
+    document.addEventListener('touchend', function (ev) {
+      if (!inStage(ev)) return;
+      var t = ev.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+      if (!lbZoom && moved && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
+        stepPic(dx < 0 ? 1 : -1);
+        return;
+      }
+      if (moved) return;
+      var now = Date.now();
+      if (now - lastTap < 320) { toggleZoom(t); lastTap = 0; }
+      else lastTap = now;
+    }, { passive: true });
+  })();
 
   /* ---------- boot ---------- */
   initTheme();
