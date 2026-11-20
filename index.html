@@ -72,8 +72,17 @@ img{max-width:100%}
 }
 
 * { box-sizing: border-box; }
-.thumbs { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 9px; }
-.pic { margin: 0; width: 86px; }
+.thumbs {
+  display: flex; flex-wrap: nowrap; gap: 9px; margin-top: 4px;
+  overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity; scrollbar-width: none; padding-bottom: 2px;
+}
+.thumbs::-webkit-scrollbar { display: none; }
+.pic { margin: 0; width: 86px; flex: 0 0 auto; scroll-snap-align: start; }
+.swipe-hint {
+  display: block; font-size: 10px; color: var(--ink-2); opacity: .75;
+  margin-top: 9px; letter-spacing: .01em;
+}
 .picdate {
   display: block; font-size: 10px; line-height: 1.35; color: var(--ink-2);
   margin-bottom: 3px; white-space: nowrap; letter-spacing: .01em;
@@ -83,21 +92,39 @@ img{max-width:100%}
   width: 86px; height: 86px; object-fit: cover; cursor: pointer; display: block;
   border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2);
 }
+.pic-wrap { position: relative; display: block; }
+.pic-play {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 28px; height: 28px; border-radius: 50%; pointer-events: none;
+  background: rgba(0,0,0,.55); color: #FFFFFF; font-size: 11px; line-height: 28px;
+  text-align: center; padding-left: 2px;
+}
+.pic-dur {
+  position: absolute; right: 4px; bottom: 4px; pointer-events: none;
+  background: rgba(0,0,0,.6); color: #FFFFFF; font-size: 9px; line-height: 1;
+  padding: 2px 4px; border-radius: 4px; letter-spacing: .02em;
+}
 .lightbox {
   position: fixed; inset: 0; z-index: 50; background: #000000;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
 }
-.lb-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
-.lb-when { color: #FFFFFF; font-size: 13px; line-height: 1.3; }
+.lb-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; width: 100%; }
+.lb-head { min-width: 0; padding-top: 2px; }
+.lb-when { display: block; color: #FFFFFF; font-size: 15px; font-weight: 600; line-height: 1.25; }
+.lb-gap { display: block; font-size: 11px; line-height: 1.3; margin-top: 3px; color: rgba(255,255,255,.62); }
 .lb-stage {
-  flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden;
+  flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden; touch-action: none;
   display: flex; align-items: center; justify-content: center;
 }
 .lightbox img {
   max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px;
   cursor: zoom-in; transition: transform .18s ease;
 }
+.lightbox video {
+  max-width: 100%; max-height: 100%; border-radius: 8px; background: #000000;
+}
+.lb-stage.is-video { touch-action: auto; }
 .lightbox img.zoomed { cursor: zoom-out; transition: none; }
 .lb-bar { display: flex; gap: 8px; align-items: center; }
 .lb-count { color: #FFFFFF; font-size: 12px; padding: 0 6px; }
@@ -448,7 +475,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 </div>
 <div class="lightbox" id="lightbox" hidden>
   <div class="lb-top">
-    <span class="lb-when" id="lbWhen"></span>
+    <div class="lb-head">
+      <span class="lb-when" id="lbWhen"></span>
+      <span class="lb-gap" id="lbGap"></span>
+    </div>
     <div class="lb-bar">
       <a class="btn btn-sm" id="lbDown" download>Tải ảnh về</a>
       <button class="btn btn-sm" type="button" data-act="lb-close">Đóng</button>
@@ -456,6 +486,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   </div>
   <div class="lb-stage" id="lbStage">
     <img id="lbImg" alt="Ảnh ghi chú phóng to">
+    <video id="lbVid" controls playsinline preload="metadata" hidden></video>
   </div>
   <div class="lb-bar">
     <button class="btn btn-sm" type="button" id="lbPrev" data-act="lb-prev" aria-label="Ảnh trước">‹</button>
@@ -613,6 +644,74 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return null;
   }
 
+  function sliceBuf(file, from, len) {
+    var blob = file.slice(from, from + len);
+    if (blob.arrayBuffer) return blob.arrayBuffer().catch(function () { return null; });
+    return new Promise(function (res) {
+      try {
+        var fr = new FileReader();
+        fr.onload = function () { res(fr.result); };
+        fr.onerror = function () { res(null); };
+        fr.readAsArrayBuffer(blob);
+      } catch (e) { res(null); }
+    });
+  }
+
+  function fourcc(dv, off) {
+    return String.fromCharCode(dv.getUint8(off), dv.getUint8(off + 1),
+                               dv.getUint8(off + 2), dv.getUint8(off + 3));
+  }
+
+  // walk the top-level MP4/MOV boxes until 'moov', then find 'mvhd' inside it
+  function mp4Date(file) {
+    var MAXMOOV = 8 * 1024 * 1024;
+    function step(pos, guard) {
+      if (guard > 40 || pos + 16 > file.size) return Promise.resolve(null);
+      return sliceBuf(file, pos, 16).then(function (h) {
+        if (!h || h.byteLength < 8) return null;
+        var dv = new DataView(h);
+        var size = dv.getUint32(0), type = fourcc(dv, 4), head = 8;
+        if (size === 1) {
+          if (h.byteLength < 16) return null;
+          size = dv.getUint32(8) * 4294967296 + dv.getUint32(12);
+          head = 16;
+        } else if (size === 0) {
+          size = file.size - pos;
+        }
+        if (size < head) return null;
+        if (type !== 'moov') return step(pos + size, guard + 1);
+        return sliceBuf(file, pos + head, Math.min(size - head, MAXMOOV)).then(function (m) {
+          if (!m) return null;
+          var u8 = new Uint8Array(m), mv = new DataView(m);
+          for (var i = 0; i + 20 < u8.length; i++) {
+            if (u8[i] === 0x6d && u8[i+1] === 0x76 && u8[i+2] === 0x68 && u8[i+3] === 0x64) {
+              var b = i + 4, ver = mv.getUint8(b), t;
+              if (ver === 1) t = mv.getUint32(b + 4) * 4294967296 + mv.getUint32(b + 8);
+              else t = mv.getUint32(b + 4);
+              if (!t) return null;
+              var d = new Date((t - 2082844800) * 1000);
+              return isNaN(d.getTime()) ? null : isoDay(d);
+            }
+          }
+          return null;
+        });
+      }).catch(function () { return null; });
+    }
+    return step(0, 0).catch(function () { return null; });
+  }
+
+  function takenOfVideo(file) {
+    return mp4Date(file).then(function (d) {
+      if (d && d > '1995-01-01' && d <= today()) return { taken: d, src: 'exif' };
+      var ms = file.lastModified;
+      if (ms) {
+        var dt = new Date(ms);
+        if (!isNaN(dt.getTime())) return { taken: isoDay(dt), src: 'file' };
+      }
+      return { taken: null, src: null };
+    }).catch(function () { return { taken: null, src: null }; });
+  }
+
   function takenOf(file) {
     return readHead(file).then(function (buf) {
       var d = null;
@@ -630,7 +729,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function picList(l) {
     var out = (((l && l.pics) || []).map(function (p) {
       if (typeof p === 'string') return { id: p, taken: null, src: null };
-      return p && p.id ? { id: p.id, taken: p.taken || null, src: p.src || null } : null;
+      return p && p.id ? { id: p.id, taken: p.taken || null, src: p.src || null,
+                           kind: p.kind === 'video' ? 'video' : 'photo',
+                           dur: p.dur || 0, ext: p.ext || 'mp4' } : null;
     })).filter(Boolean);
     out.sort(function (x, y) {
       if (x.taken && y.taken) return x.taken < y.taken ? -1 : (x.taken > y.taken ? 1 : 0);
@@ -639,6 +740,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       return 0;
     });
     return out;
+  }
+
+  function countLabel(ps) {
+    var v = 0;
+    for (var i = 0; i < ps.length; i++) if (ps[i].kind === 'video') v++;
+    if (!v) return ps.length + ' ảnh';
+    if (v === ps.length) return v + ' video';
+    return (ps.length - v) + ' ảnh, ' + v + ' video';
   }
 
   function picDay(p, l) {
@@ -677,8 +786,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function putPic(id, blob) { return idbDo('readwrite', function (st) { return st.put(blob, id); }); }
   function getPic(id) { return idbDo('readonly', function (st) { return st.get(id); }); }
   function delPic(id) {
-    if (urlCache[id]) { try { URL.revokeObjectURL(urlCache[id]); } catch (e) {} delete urlCache[id]; }
-    return idbDo('readwrite', function (st) { return st.delete(id); });
+    [id, id + ':p'].forEach(function (k) {
+      if (urlCache[k]) { try { URL.revokeObjectURL(urlCache[k]); } catch (e) {} delete urlCache[k]; }
+    });
+    return idbDo('readwrite', function (st) { return st.delete(id); })
+      .then(function () { return idbDo('readwrite', function (st) { return st.delete(id + ':p'); }); });
   }
 
   function shrink(file) {
@@ -702,22 +814,89 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     });
   }
 
+  var MAX_VIDEO = 80 * 1024 * 1024;
+
+  function videoMeta(file) {
+    return new Promise(function (res) {
+      var url, v, done = false;
+      function finish(out) {
+        if (done) return;
+        done = true;
+        try { URL.revokeObjectURL(url); } catch (e) {}
+        res(out);
+      }
+      try { url = URL.createObjectURL(file); } catch (e) { return res(null); }
+      v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.preload = 'metadata';
+      v.onerror = function () { finish(null); };
+      v.onloadedmetadata = function () {
+        var dur = isFinite(v.duration) ? v.duration : 0;
+        try { v.currentTime = Math.min(0.15, dur / 2 || 0); } catch (e) { finish({ dur: dur, poster: null }); }
+      };
+      v.onseeked = function () {
+        var dur = isFinite(v.duration) ? v.duration : 0;
+        try {
+          var MAX = 1400, w = v.videoWidth, h = v.videoHeight;
+          if (!w || !h) return finish({ dur: dur, poster: null });
+          var sc = Math.min(1, MAX / Math.max(w, h));
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(w * sc));
+          c.height = Math.max(1, Math.round(h * sc));
+          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+          c.toBlob(function (b) { finish({ dur: dur, poster: b || null }); }, 'image/jpeg', 0.78);
+        } catch (e) { finish({ dur: dur, poster: null }); }
+      };
+      setTimeout(function () { finish(null); }, 15000);
+      v.src = url;
+    });
+  }
+
+  function durText(s) {
+    s = Math.max(0, Math.round(s || 0));
+    var m = Math.floor(s / 60);
+    return m + ':' + ('0' + (s - m * 60)).slice(-2);
+  }
+
+  function saveOneVideo(f, skipped) {
+    if (f.size > MAX_VIDEO) {
+      skipped.push('"' + f.name + '" nặng ' + (f.size / 1048576).toFixed(0) + ' MB, quá 80 MB');
+      return Promise.resolve(null);
+    }
+    return takenOfVideo(f).then(function (meta) {
+      return videoMeta(f).then(function (vm) {
+        var id = newId('v');
+        return putPic(id, f).then(function (ok) {
+          if (!ok) { skipped.push('"' + f.name + '" không lưu được (hết chỗ trống?)'); return null; }
+          var rec = { id: id, taken: meta.taken, src: meta.src, kind: 'video',
+                      dur: vm && vm.dur ? Math.round(vm.dur) : 0,
+                      ext: (f.type.indexOf('quicktime') > -1 || /\.mov$/i.test(f.name)) ? 'mov' : 'mp4' };
+          if (vm && vm.poster) return putPic(id + ':p', vm.poster).then(function () { return rec; });
+          return rec;
+        });
+      });
+    });
+  }
+
   function savePics(files) {
-    var out = [], chain = Promise.resolve();
+    var out = [], skipped = [], chain = Promise.resolve();
     files.slice(0, 12).forEach(function (f) {
       chain = chain.then(function () {
+        if (f.type.indexOf('video/') === 0) {
+          return saveOneVideo(f, skipped).then(function (rec) { if (rec) out.push(rec); });
+        }
         return takenOf(f).then(function (meta) {
           return shrink(f).then(function (b) {
-            if (!b) return;
+            if (!b) { skipped.push('"' + f.name + '" không mở được'); return; }
             var id = newId('a');
             return putPic(id, b).then(function (ok) {
-              if (ok) out.push({ id: id, taken: meta.taken, src: meta.src });
+              if (ok) out.push({ id: id, taken: meta.taken, src: meta.src, kind: 'photo' });
+              else skipped.push('"' + f.name + '" không lưu được (hết chỗ trống?)');
             });
           });
         });
       });
     });
-    return chain.then(function () { return out; });
+    return chain.then(function () { return { pics: out, skipped: skipped }; });
   }
 
   function hydratePics() {
@@ -726,7 +905,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var id = el.getAttribute('data-photo');
       if (urlCache[id]) { el.src = urlCache[id]; return; }
       getPic(id).then(function (b) {
-        if (!b) { el.style.display = 'none'; return; }
+        if (!(b instanceof Blob)) { el.style.display = 'none'; return; }
         try { urlCache[id] = URL.createObjectURL(b); el.src = urlCache[id]; } catch (e) {}
       });
     })(els[i]);
@@ -746,6 +925,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   function closeLb() {
     resetZoom();
+    var ve = $('#lbVid');
+    try { ve.pause(); } catch (e) {}
+    ve.removeAttribute('src'); ve.load && ve.load();
     $('#lightbox').hidden = true;
   }
 
@@ -757,18 +939,42 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     $('#lbWhen').textContent = p.src === 'exif'
       ? 'Chụp ' + day
       : (day ? '~ ' + day + (p.src === 'file' ? ' (ngày tệp ảnh)' : ' (ngày ghi chú)') : '');
+    $('#lbGap').textContent = gapText(p);
     $('#lbCount').textContent = lbSet.length > 1 ? (lbIdx + 1) + ' / ' + lbSet.length : '';
     $('#lbPrev').disabled = lbSet.length < 2;
     $('#lbNext').disabled = lbSet.length < 2;
+    var vid = p.kind === 'video';
+    var im = $('#lbImg'), ve = $('#lbVid');
+    try { ve.pause(); } catch (e) {}
+    ve.removeAttribute('src'); ve.load && ve.load();
+    im.hidden = vid; ve.hidden = !vid;
+    $('#lbStage').classList.toggle('is-video', vid);
+    $('#lbDown').textContent = vid ? 'Tải video về' : 'Tải ảnh về';
     getPic(p.id).then(function (b) {
-      if (!b) { flash('Không tìm thấy ảnh này trên máy.'); return; }
+      if (!(b instanceof Blob)) { flash('Không tìm thấy tệp này trên máy.'); return; }
       var u = urlCache[p.id];
       if (!u) { try { u = urlCache[p.id] = URL.createObjectURL(b); } catch (e) { return; } }
-      $('#lbImg').src = u;
+      if (vid) ve.src = u; else im.src = u;
       var a = $('#lbDown');
       a.href = u;
-      a.download = 'cay-' + (p.taken || 'anh') + '-' + p.id + '.jpg';
+      a.download = 'cay-' + (p.taken || 'anh') + '-' + p.id + (vid ? '.' + p.ext : '.jpg');
     });
+  }
+
+  function dayDiff(a, b) {
+    var pa = a.split('-'), pb = b.split('-');
+    return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) -
+                       Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 86400000);
+  }
+
+  function gapText(p) {
+    var first = lbSet[0];
+    if (lbIdx === 0 || !first || !first.taken || !p.taken) return '';
+    var n = dayDiff(first.taken, p.taken);
+    if (n <= 0) return '';
+    if (n < 31) return n + ' ngày sau ảnh đầu';
+    var m = Math.floor(n / 30.44), d = n - Math.round(m * 30.44);
+    return m + ' tháng' + (d > 0 ? ' ' + d + ' ngày' : '') + ' sau ảnh đầu';
   }
 
   function stepPic(d) {
@@ -812,12 +1018,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var el = $('#usage');
     if (!el) return;
     if (!navigator.storage || !navigator.storage.estimate) {
-      el.textContent = 'Ảnh lưu riêng trong máy, bản sao bên dưới chỉ chứa ghi chú — ảnh phải tải về từng tấm.';
+      el.textContent = 'Ảnh và video lưu riêng trong máy, bản sao bên dưới chỉ chứa ghi chú — phải tải về từng tệp.';
       return;
     }
     navigator.storage.estimate().then(function (e) {
-      el.textContent = 'Đang dùng ' + ((e.usage || 0) / 1048576).toFixed(1) +
-        ' MB. Bản sao bên dưới chỉ chứa ghi chú — ảnh phải tải về từng tấm.';
+      var mb = (e.usage || 0) / 1048576, q = (e.quota || 0) / 1048576;
+      el.textContent = 'Đang dùng ' + mb.toFixed(1) + ' MB' +
+        (q ? ' trên khoảng ' + q.toFixed(0) + ' MB trình duyệt cho phép' : '') +
+        '. Bản sao bên dưới chỉ chứa ghi chú — ảnh và video phải tải về từng tệp.';
     }).catch(function () {});
   }
 
@@ -986,10 +1194,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '<div class="field" style="flex:0 1 150px"><label for="d-mark-' + p.id + '">Tình hình</label>' +
          '<select id="d-mark-' + p.id + '" name="mark"><option value="ok">Ổn</option><option value="watch">Theo dõi</option><option value="alert">Có vấn đề</option></select></div>' +
          '</div>' +
-         '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú</label>' +
-         '<textarea id="d-note-' + p.id + '" name="note" placeholder="VD: vết bạc màu vẫn khô và cứng, chưa lan thêm" required></textarea></div>' +
-         '<div class="field" style="margin-top:10px"><label for="d-pic-' + p.id + '">Ảnh (tùy chọn, tối đa 12)</label>' +
-         '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*" multiple></div>' +
+         '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú (tùy chọn)</label>' +
+         '<textarea id="d-note-' + p.id + '" name="note" placeholder="Để trống cũng được — chọn ảnh rồi bấm Lưu là xong"></textarea></div>' +
+         '<div class="field" style="margin-top:10px"><label for="d-pic-' + p.id + '">Ảnh hoặc video (tùy chọn, tối đa 12)</label>' +
+         '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*,video/*" multiple></div>' +
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu ghi chú</button></div>' +
          '</form>';
     h += '<div class="fields">' +
@@ -1022,19 +1230,25 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var p = byId(l.plantId);
     return '<li><span class="when">' + shortDate(l.date) + '</span>' +
       '<div class="entry">' +
-      '<p>' + esc(l.note) + '</p>' +
+      (l.note ? '<p>' + esc(l.note) + '</p>' : '') +
       (function () {
         var ps = picList(l);
         if (!ps.length) return '';
-        return '<div class="thumbs">' + ps.map(function (p) {
-          var day = picDay(p, l), sure = p.src === 'exif';
+        return (ps.length > 2 ? '<span class="swipe-hint">' + countLabel(ps) + ' — vuốt ngang</span>' : '') +
+          '<div class="thumbs">' + ps.map(function (p) {
+          var day = picDay(p, l), sure = p.src === 'exif', vid = p.kind === 'video';
+          var what = vid ? 'Video' : 'Ảnh';
           return '<figure class="pic">' +
             '<span class="picdate' + (sure ? '' : ' guess') + '">' +
               (sure ? '' : '~') + day + '</span>' +
-            '<img class="thumb" data-photo="' + p.id + '" data-pic="' + p.id + '"' +
+            '<span class="pic-wrap">' +
+            '<img class="thumb" data-photo="' + (vid ? p.id + ':p' : p.id) + '" data-pic="' + p.id + '"' +
               ' data-log="' + l.id + '" loading="lazy"' +
-              ' alt="Ảnh ngày ' + day + '" title="' + (sure ? 'Ngày chụp ' : 'Khoảng ') + day + '">' +
-            '</figure>';
+              ' alt="' + what + ' ngày ' + day + '" title="' + what + ' — ' +
+              (sure ? 'ngày quay/chụp ' : 'khoảng ') + day + '">' +
+            (vid ? '<span class="pic-play">▶</span>' +
+                   (p.dur ? '<span class="pic-dur">' + durText(p.dur) + '</span>' : '') : '') +
+            '</span></figure>';
         }).join('') + '</div>';
       })() +
       '<div class="meta">' +
@@ -1167,7 +1381,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (f.getAttribute('data-act') === 'note') {
       ev.preventDefault();
       var note = f.elements.note.value.trim();
-      if (!note) return;
+      var pin = f.elements.pic;
+      var files = pin && pin.files ? [].slice.call(pin.files) : [];
+      if (!note && !files.length) {
+        flash('Viết ghi chú hoặc chọn ảnh/video trước đã.');
+        return;
+      }
       var rec = {
         id: newId('l'),
         plantId: f.getAttribute('data-id'),
@@ -1177,21 +1396,24 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         at: new Date().toISOString(),
         pics: []
       };
-      var pin = f.elements.pic;
-      var files = pin && pin.files ? [].slice.call(pin.files) : [];
       f.elements.note.value = '';
       if (pin) pin.value = '';
       if (!files.length) { logs.push(rec); commit(); return; }
-      flash('Đang xử lý ' + files.length + ' ảnh…', true);
-      savePics(files).then(function (ps) {
+      flash('Đang xử lý ' + files.length + ' tệp…', true);
+      savePics(files).then(function (res) {
+        var ps = res.pics;
         rec.pics = ps;
         logs.push(rec);
         commit();
         showUsage();
         var dated = ps.filter(function (p) { return p.src === 'exif'; }).length;
-        flash(ps.length
-          ? 'Đã lưu ' + ps.length + ' ảnh' + (dated ? ' — ' + dated + ' ảnh đọc được ngày chụp.' : '.')
-          : 'Không đọc được ảnh nào.');
+        var vids = ps.filter(function (p) { return p.kind === 'video'; }).length;
+        var msg = ps.length
+          ? 'Đã lưu ' + (ps.length - vids) + ' ảnh' + (vids ? ' và ' + vids + ' video' : '') +
+            (dated ? ' — ' + dated + ' tệp đọc được ngày gốc.' : '.')
+          : 'Chưa lưu được tệp nào.';
+        if (res.skipped.length) msg += ' Bỏ qua ' + res.skipped.join('; ') + '.';
+        flash(msg, res.skipped.length > 0);
       });
     }
   });
@@ -1216,6 +1438,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   document.addEventListener('dblclick', function (ev) {
     if ($('#lightbox').hidden || ev.target.id !== 'lbImg') return;
+    if ((lbSet[lbIdx] || {}).kind === 'video') return;
     ev.preventDefault();
     toggleZoom(ev);
   });
@@ -1223,7 +1446,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   (function () {
     var sx = 0, sy = 0, px = 0, py = 0, moved = false, lastTap = 0;
     function inStage(ev) {
-      return !$('#lightbox').hidden && ev.target.closest && ev.target.closest('#lbStage');
+      if ($('#lightbox').hidden) return false;
+      var cur = lbSet[lbIdx];
+      if (cur && cur.kind === 'video') return false;
+      return ev.target.closest && ev.target.closest('#lbStage');
     }
     document.addEventListener('touchstart', function (ev) {
       if (!inStage(ev) || ev.touches.length !== 1) return;
@@ -1247,6 +1473,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var now = Date.now();
       if (now - lastTap < 320) { toggleZoom(t); lastTap = 0; }
       else lastTap = now;
+    }, { passive: true });
+    document.addEventListener('touchcancel', function (ev) {
+      if (!inStage(ev)) return;
+      moved = false;
+      if (lbZoom) { lbPan.x = px; lbPan.y = py; applyPan(); }
     }, { passive: true });
   })();
 
