@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-145220">
+<html lang="vi" data-build="20261122-151130">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -139,8 +139,8 @@ img{max-width:100%}
 }
 .deadbox {
   display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
-  font-size: 13.5px; color: var(--ink-2); align-self: flex-start;
-  margin: 2px 0 0; padding: 7px 12px 7px 10px; border-radius: 20px;
+  font-size: 13.5px; color: var(--ink-2);
+  padding: 7px 12px 7px 10px; border-radius: 20px;
   border: 1px solid var(--line); background: var(--surface-2);
 }
 .deadbox input { width: 18px; height: 18px; margin: 0; accent-color: var(--ink-2); }
@@ -302,17 +302,6 @@ h2 {
   overflow-wrap: anywhere;
 }
 .card .sp { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-2); overflow-wrap: anywhere; }
-.tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag {
-  font-size: 11.5px;
-  font-weight: 500;
-  padding: 3px 9px;
-  border-radius: 20px;
-  background: var(--surface-2);
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-.tag.stage { background: var(--accent-soft); color: var(--accent); }
 .meters { display: flex; flex-direction: column; gap: 9px; font-size: 13px; }
 .meter { display: block; }
 .m-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -328,27 +317,6 @@ h2 {
 .m-bar i.soon { background: var(--watch); }
 .m-bar i.late { background: var(--alert); }
 .m-bar.off { opacity: .45; }
-
-.today { margin-bottom: 18px; }
-.today h2 { font-size: 15px; margin: 0 0 8px; }
-.today ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
-.today li {
-  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
-  padding: 9px 11px;
-}
-.today li.late { border-color: var(--alert); }
-.todo-main { display: flex; align-items: center; gap: 10px; }
-.todo-who {
-  flex: 1 1 auto; min-width: 0; font-weight: 600;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.todo-sub { font-size: 12px; color: var(--ink-2); margin-top: 2px; font-variant-numeric: tabular-nums; }
-.today li.late .todo-sub { color: var(--alert); }
-.todo-sub b { font-weight: 600; }
-.today .calm {
-  margin: 0; font-size: 13px; color: var(--ink-2);
-  background: var(--accent-soft); border-radius: 10px; padding: 11px 13px;
-}
 .card-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; }
 .btn-ico {
   margin-left: auto; min-width: 42px; padding: 7px 12px;
@@ -396,7 +364,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   flex-direction: column;
   gap: 12px;
 }
-.row-end { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.row-end { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.row-end .deadbox { margin-right: auto; }
 
 /* --- history + feed --- */
 .hist { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
@@ -464,8 +433,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     <p class="sub">Sổ tay cho mấy bé trồng trong nhà. Hôm nay tới phiên bé nào uống nước ta?</p>
     <div class="stats" id="stats"></div>
   </header>
-
-  <section class="today" id="today"></section>
 
   <section class="block">
     <div class="block-head">
@@ -584,7 +551,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     'rooting': { label: 'Đang ra rễ', hint: 'Giữ ẩm nhẹ ở đáy, mặt đất để khô. Đừng để khô cong, cũng đừng nhấc lên xem — nhấc một cái là gãy rễ non. Chưa bón đâu, rễ non chưa ăn được phân.' },
     'settled': { label: 'Đã bám rễ',  hint: 'Tưới là tưới đẫm, tới khi nước chảy ra đáy. Rồi để khô hẳn mới tưới lại. Muốn bón thì pha nửa liều vào nước tưới, 2–3 lần tưới mới bón một lần, và chỉ bón khi cây đang lớn.' }
   };
-  var SPOTS = { sun: 'Ngoài nắng', bright: 'Sáng mà mát', shade: 'Trong râm' };
   var KEY = 'vuon-sen-da.v1';
 
   var SEED = {
@@ -1203,57 +1169,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   /* ---------- render ---------- */
   function render() {
-    renderStats(); renderToday(); renderGrid(); renderFilter(); renderFeed(); renderReset(); renderImport();
+    renderStats(); renderGrid(); renderFilter(); renderFeed(); renderReset(); renderImport();
     hydratePics();
-  }
-
-  function dueList() {
-    var out = [];
-    plants.forEach(function (p) {
-      if (p.dead) return;
-      var w = dueIn(p.lastWater, waterEvery(p));
-      if (waterEvery(p) && (w === null || w <= 0))
-        out.push({ p: p, what: 'Tưới', act: 'water', n: w });
-    });
-    out.sort(function (a, b) {
-      if (a.n === null) return 1;
-      if (b.n === null) return -1;
-      return a.n - b.n;
-    });
-    return out;
-  }
-
-  function renderToday() {
-    var el = $('#today');
-    if (!el) return;
-    if (!plants.length) { el.innerHTML = ''; return; }
-    var list = dueList();
-    if (!list.length) {
-      el.innerHTML = '<h2>Hôm nay</h2>' +
-        '<p class="calm">Không cây nào cần tưới. Cây gần nhất còn ' + nextInDays() + ' nữa — cứ thong thả.</p>';
-      return;
-    }
-    el.innerHTML = '<h2>Việc hôm nay</h2><ul>' + list.map(function (it) {
-      var late = it.n !== null && it.n < 0;
-      return '<li class="' + (late ? 'late' : '') + '">' +
-        '<div class="todo-main">' +
-          '<span class="todo-who" title="' + esc(it.p.name) + '">' + esc(it.p.name) + '</span>' +
-          '<button class="btn btn-sm" type="button" data-act="' + it.act + '" data-id="' + it.p.id + '">Xong</button>' +
-        '</div>' +
-        '<div class="todo-sub"><b>' + it.what + '</b> · ' +
-          (it.n === null ? 'chưa ghi lần nào' : dueText(it.n)) + '</div>' +
-        '</li>';
-    }).join('') + '</ul>';
-  }
-
-  function nextInDays() {
-    var best = null;
-    plants.forEach(function (p) {
-      if (p.dead) return;
-      var n = dueIn(p.lastWater, waterEvery(p));
-      if (n !== null && n > 0 && (best === null || n < best)) best = n;
-    });
-    return best === null ? 'chưa rõ' : (best === 1 ? '1 ngày' : best + ' ngày');
   }
 
   function renderImport() {
@@ -1357,8 +1274,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '<h3>' + esc(p.name) + '</h3>' +
          (p.species ? '<p class="sp">' + esc(p.species) + '</p>' : '') +
          '</div></div>';
-    h += '<div class="tags"><span class="tag stage">' + (STAGES[p.stage] ? STAGES[p.stage].label : '—') + '</span>' +
-         '<span class="tag">' + (SPOTS[p.spot] || '—') + '</span></div>';
     if (!gone) {
       h += '<dl class="meters">' +
            meterRow('Tưới', p.lastWater, waterEvery(p)) +
@@ -1380,7 +1295,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function detail(p) {
     var mine = logs.filter(function (l) { return l.plantId === p.id; });
     var h = '<div class="detail">';
-    h += '<p class="hint">' + (STAGES[p.stage] ? STAGES[p.stage].hint : '') + '</p>';
     h += '<form data-act="note" data-id="' + p.id + '">' +
          '<div class="fields">' +
          '<div class="field" style="flex:0 1 150px"><label for="d-date-' + p.id + '">Ngày</label>' +
@@ -1403,22 +1317,18 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '<input id="e-sp-' + p.id + '" data-act="set-sp" data-id="' + p.id + '" value="' + esc(p.species || '') + '" placeholder="Astrophytum asterias"></div>' +
          '<div class="field"><label for="e-stage-' + p.id + '">Rễ tới đâu rồi</label><select id="e-stage-' + p.id + '" data-act="set-stage" data-id="' + p.id + '">' +
          opts(STAGES, p.stage, true) + '</select></div>' +
-         '<div class="field"><label for="e-spot-' + p.id + '">Đang để chỗ nào</label><select id="e-spot-' + p.id + '" data-act="set-spot" data-id="' + p.id + '">' +
-         opts(SPOTS, p.spot, false) + '</select></div>' +
          '<div class="field"><label for="e-wev-' + p.id + '">Bao lâu tưới một lần</label><select id="e-wev-' + p.id + '" data-act="set-wev" data-id="' + p.id + '">' +
          everyOpts(WATER_OPTS, waterEvery(p)) + '</select></div>' +
-         '</div>' +
-         '<label class="deadbox"><input type="checkbox" id="e-dead-' + p.id + '" data-act="set-dead" data-id="' + p.id + '"' +
-           (p.dead ? ' checked' : '') + '> Cây ngỏm rồi</label>' +
-         (p.dead
-           ? '<p class="sp" style="margin:2px 0 0">Thẻ giữ lại để còn xem ảnh và nhật ký cũ. Bỏ tick là cây về chỗ cũ.</p>'
-           : '<p class="sp" style="margin:4px 0 0">Lịch chỉ để nhắc thôi. Sờ đất trước đã — còn ẩm thì cứ khoan, dù tới ngày rồi.</p>');
+         '</div>';
     h += '<div><h3 style="font-size:14px;margin:0 0 6px">Đã ghi những gì</h3>';
     h += mine.length
       ? '<ol class="hist">' + mine.map(function (l) { return entry(l, false); }).join('') + '</ol>'
       : '<p class="sp" style="margin:0">Cây này chưa có dòng nào. Viết dòng đầu tiên đi.</p>';
     h += '</div>';
-    h += '<div class="row-end">' + (confirmDel === p.id
+    h += '<div class="row-end">' +
+         '<label class="deadbox"><input type="checkbox" id="e-dead-' + p.id + '" data-act="set-dead" data-id="' + p.id + '"' +
+           (p.dead ? ' checked' : '') + '> Cây ngỏm rồi</label>' +
+         (confirmDel === p.id
       ? '<span class="sp" style="align-self:center">Xóa cây này và mọi ghi chú của nó nhé?</span>' +
         '<button class="btn btn-sm" type="button" data-act="cancel-del">Thôi</button>' +
         '<button class="btn btn-sm btn-danger" type="button" data-act="do-del" data-id="' + p.id + '">Xóa hẳn</button>'
@@ -1723,7 +1633,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       commit();
       return;
     }
-    if (act === 'set-spot')  { p.spot  = el.value; commit(); }
     if (act === 'set-wev')   { p.waterEvery = parseInt(el.value, 10) || 7; commit(); }
   });
 
