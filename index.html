@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-232944">
+<html lang="vi" data-build="20261122-234721">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -735,6 +735,26 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
                                dv.getUint8(off + 2), dv.getUint8(off + 3));
   }
 
+  // iPhone ghi ngày quay dạng chữ ngay trong phần moov, ví dụ
+  // "2024-03-15T08:30:00+0700" (com.apple.quicktime.creationdate hoặc ©day).
+  // Chữ này là giờ địa phương nên đúng ngày hơn mvhd, vốn ghi theo giờ UTC.
+  function ngayTrongMoov(u8) {
+    for (var i = 0; i + 10 < u8.length; i++) {
+      if (u8[i] < 0x31 || u8[i] > 0x32) continue;          // năm bắt đầu bằng 1 hoặc 2
+      var ok = true;
+      for (var k = 1; k < 10; k++) {
+        var c = u8[i + k];
+        if (k === 4 || k === 7) { if (c !== 0x2D) { ok = false; break; } }
+        else if (c < 0x30 || c > 0x39) { ok = false; break; }
+      }
+      if (!ok) continue;
+      var s = '';
+      for (var m = 0; m < 10; m++) s += String.fromCharCode(u8[i + m]);
+      if (s > '1995-01-01' && s <= today()) return s;
+    }
+    return null;
+  }
+
   // walk the top-level MP4/MOV boxes until 'moov', then find 'mvhd' inside it
   function mp4Date(file) {
     var MAXMOOV = 8 * 1024 * 1024;
@@ -756,6 +776,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         return sliceBuf(file, pos + head, Math.min(size - head, MAXMOOV)).then(function (m) {
           if (!m) return null;
           var u8 = new Uint8Array(m), mv = new DataView(m);
+          var chu = ngayTrongMoov(u8);
+          if (chu) return chu;
           for (var i = 0; i + 20 < u8.length; i++) {
             if (u8[i] === 0x6d && u8[i+1] === 0x76 && u8[i+2] === 0x68 && u8[i+3] === 0x64) {
               var b = i + 4, ver = mv.getUint8(b), t;
@@ -940,6 +962,52 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       return new Blob([u8.subarray(0, 2), exifApp1(ngay, kc.w, kc.h), u8.subarray(sau)],
                       { type: 'image/jpeg' });
     }).catch(function () { return blob; });
+  }
+
+  // Vẽ ngày chụp vào chính hình ảnh. iOS dựng lại tấm ảnh khi bỏ vào thư viện
+  // nên mọi thứ ghi kèm đều mất — riêng cái vẽ trong hình thì nó chép theo.
+  function veNgay(blob, ngay) {
+    if (!blob || !ngay) return Promise.resolve(blob);
+    var q = ngay.split('-'), chu = q[2] + '/' + q[1] + '/' + q[0];
+    return new Promise(function (res) {
+      var u = null, im = new Image(), xong = false, hen = null;
+      function thoi(b) {
+        if (xong) return;
+        xong = true;
+        clearTimeout(hen);
+        if (u) { try { URL.revokeObjectURL(u); } catch (e) {} }
+        res(b || blob);
+      }
+      hen = setTimeout(function () { thoi(null); }, 15000);
+      im.onload = function () {
+        try {
+          var w = im.naturalWidth, h = im.naturalHeight;
+          if (!w || !h) return thoi(null);
+          var c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          var x = c.getContext('2d');
+          x.drawImage(im, 0, 0);
+          var cao = Math.max(13, Math.round(Math.min(w, h) / 26));
+          x.font = '600 ' + cao + 'px -apple-system, BlinkMacSystemFont, system-ui, sans-serif';
+          x.textBaseline = 'middle';
+          var rong = x.measureText(chu).width;
+          var dem = Math.round(cao * 0.62), le = Math.round(Math.min(w, h) / 24);
+          var bw = Math.round(rong + dem * 2), bh = Math.round(cao + dem * 1.3);
+          var bx = le, by = h - le - bh;
+          x.fillStyle = 'rgba(0,0,0,.42)';
+          if (x.roundRect) { x.beginPath(); x.roundRect(bx, by, bw, bh, bh / 2); x.fill(); }
+          else x.fillRect(bx, by, bw, bh);
+          x.fillStyle = '#FFFFFF';
+          x.fillText(chu, bx + dem, by + bh / 2);
+          c.toBlob(function (b) {
+            try { c.width = 1; c.height = 1; } catch (e) {}
+            thoi(b);
+          }, 'image/jpeg', 0.9);
+        } catch (e) { thoi(null); }
+      };
+      im.onerror = function () { thoi(null); };
+      try { u = URL.createObjectURL(blob); im.src = u; } catch (e) { thoi(null); }
+    });
   }
 
   function picDay(p, l) {
@@ -1462,7 +1530,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     $('#lbStage').classList.toggle('is-video', vid);
     datNutXoa(vid ? '✕ Xóa video' : '✕ Xóa');
     var dow = $('#lbDown');
-    dow.textContent = vid ? 'Tải video về' : 'Tải ảnh về';
+    dow.textContent = vid ? 'Tải video về' : 'Đang chuẩn bị…';
     dow.title = 'Tệp lưu về vẫn mang đúng ngày chụp';
     lbFile = null;
     if (lbDlUrl) { try { URL.revokeObjectURL(lbDlUrl); } catch (e) {} lbDlUrl = null; }
@@ -1478,8 +1546,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var ten = chu + (ngay ? '-' + ngay : '') + duoi;
       dow.href = u;
       dow.download = ten;
-      return (vid ? Promise.resolve(b) : stampJpeg(b, ngay)).then(function (out) {
+      var lam = vid ? Promise.resolve(b)
+                    : veNgay(b, ngay).then(function (bb) { return stampJpeg(bb, ngay); });
+      return lam.catch(function () { return b; }).then(function (out) {
         if (lbSet[lbIdx] !== p) return;
+        dow.textContent = vid ? 'Tải video về' : 'Tải ảnh về';
         try { lbDlUrl = URL.createObjectURL(out); dow.href = lbDlUrl; } catch (e) {}
         try {
           var f = new File([out], ten, { type: out.type ||
@@ -1988,8 +2059,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
           // iOS dựng lại ảnh khi bỏ vào thư viện nên ngày chụp bị thay bằng giờ hiện tại.
           // Không chặn được, chỉ nhắc chị sửa lại cho nhanh.
           if (ngayChup) {
-            flash('Đã gửi đi. Nếu chọn "Lưu ảnh", máy sẽ ghi ngày hôm nay — mở tấm đó trong ' +
-                  'app Ảnh, bấm ⓘ rồi "Điều chỉnh", nhập ' + ngayChup + '.', false, 20000);
+            flash('Đã gửi đi. Ngày ' + ngayChup + ' đã in sẵn ở góc tấm ảnh. Phần thông tin ' +
+                  'của máy vẫn ghi hôm nay — muốn sửa thì bấm ⓘ rồi "Điều chỉnh".', false, 16000);
           }
         }).catch(function (e) {
           if (e && (e.name === 'AbortError' || e.code === 20)) return;
