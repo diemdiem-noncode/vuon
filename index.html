@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-152647">
+<html lang="vi" data-build="20261122-190446">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -943,9 +943,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     });
   }
 
-  function savePics(files) {
+  var MAX_BATCH = 60;
+
+  function savePics(files, onStep) {
     var out = [], skipped = [], chain = Promise.resolve();
-    files.slice(0, 12).forEach(function (f) {
+    var use = files.slice(0, MAX_BATCH), all = use.length, done = 0;
+    if (files.length > MAX_BATCH) {
+      skipped.push((files.length - MAX_BATCH) + ' tệp cuối chưa lưu — một lượt chỉ nhận ' +
+                   MAX_BATCH + ' tệp, chọn thêm lần nữa nhé');
+    }
+    use.forEach(function (f) {
       chain = chain.then(function () {
         if (f.type.indexOf('video/') === 0) {
           return saveOneVideo(f, skipped).then(function (rec) { if (rec) out.push(rec); });
@@ -960,9 +967,35 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
             });
           });
         });
+      }).then(function () {
+        done++;
+        if (onStep) onStep(done, all);
       });
     });
     return chain.then(function () { return { pics: out, skipped: skipped }; });
+  }
+
+  // mỗi tệp về đúng ngày của nó: ngày nào đã có ghi chú thì ảnh vào đó,
+  // chưa có thì mở một dòng mới cho ngày đó
+  function chiaTheoNgay(plantId, ps, ngayMacDinh) {
+    var map = {}, thuTu = [];
+    ps.forEach(function (pic) {
+      var d = pic.taken || ngayMacDinh;
+      if (!map[d]) { map[d] = []; thuTu.push(d); }
+      map[d].push(pic);
+    });
+    var moi = 0;
+    thuTu.forEach(function (d) {
+      var hit = null;
+      for (var i = 0; i < logs.length; i++) {
+        if (logs[i].plantId === plantId && logs[i].date === d) { hit = logs[i]; break; }
+      }
+      if (hit) { hit.pics = (hit.pics || []).concat(map[d]); return; }
+      logs.push({ id: newId('l'), plantId: plantId, date: d, note: '',
+                  at: new Date().toISOString(), pics: map[d] });
+      moi++;
+    });
+    return { ngay: thuTu.length, moi: moi };
   }
 
   function hydratePics() {
@@ -1325,12 +1358,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '</div>' +
          '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú (nếu muốn)</label>' +
          '<textarea id="d-note-' + p.id + '" name="note" placeholder="Hôm nay cây thế nào…"></textarea></div>' +
-         '<div class="field" style="margin-top:10px"><span class="lbl">Ảnh hoặc video (tối đa 12)</span>' +
+         '<div class="field" style="margin-top:10px"><span class="lbl">Ảnh hoặc video</span>' +
          '<div class="filepick">' +
          '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*,video/*" multiple>' +
          '<label class="filebtn" for="d-pic-' + p.id + '">Chọn ảnh hoặc video</label>' +
          '<span class="filename">chưa chọn gì</span>' +
-         '</div></div>' +
+         '</div>' +
+         '<p class="sp" style="margin:6px 0 0">Chọn cả xấp cũng được (tối đa 60 tệp một lượt). ' +
+         'Mỗi tấm tự về đúng ngày chụp của nó.</p></div>' +
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu lại</button></div>' +
          '</form>';
     h += '<div><h3 style="font-size:14px;margin:0 0 6px">Đã ghi những gì</h3>';
@@ -1570,31 +1605,42 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         flash('Viết gì đó hoặc chọn ảnh đã nhé.');
         return;
       }
-      var rec = {
-        id: newId('l'),
-        plantId: f.getAttribute('data-id'),
-        date: f.elements.date.value || today(),
-        note: note,
-        at: new Date().toISOString(),
-        pics: []
-      };
+      var pid = f.getAttribute('data-id');
+      var ngay = f.elements.date.value || today();
       f.elements.note.value = '';
       if (pin) pin.value = '';
-      if (!files.length) { logs.push(rec); commit(); flash('Đã ghi.'); return; }
+      var tag = pin && pin.parentNode && pin.parentNode.querySelector('.filename');
+      if (tag) tag.textContent = 'chưa chọn gì';
+
+      if (note) {
+        logs.push({ id: newId('l'), plantId: pid, date: ngay, note: note,
+                    at: new Date().toISOString(), pics: [] });
+        sortLogs();
+        commit();
+      }
+      if (!files.length) { flash('Đã ghi.'); return; }
       flash('Đang xử lý ' + files.length + ' tệp, chờ xíu…', true);
-      savePics(files).then(function (res) {
+      savePics(files, function (xong, tong) {
+        flash('Đang xử lý ' + xong + '/' + tong + ' tệp, chờ xíu…', true);
+      }).then(function (res) {
         var ps = res.pics;
-        rec.pics = ps;
-        logs.push(rec);
+        var g = chiaTheoNgay(pid, ps, ngay);
+        sortLogs();
         commit();
         showUsage();
-        var dated = ps.filter(function (p) { return p.src === 'exif'; }).length;
-        var vids = ps.filter(function (p) { return p.kind === 'video'; }).length;
-        var msg = ps.length
-          ? 'Đã lưu ' + (ps.length - vids) + ' ảnh' + (vids ? ' và ' + vids + ' video' : '') +
-            (dated ? ' — ' + dated + ' tệp đọc được ngày gốc.' : '.')
-          : 'Chưa lưu được tệp nào.';
-        if (res.skipped.length) msg += ' Bỏ qua ' + res.skipped.join('; ') + '.';
+        var vids = ps.filter(function (x) { return x.kind === 'video'; }).length;
+        var uoc = ps.filter(function (x) { return x.src === 'file'; }).length;
+        var trong = ps.filter(function (x) { return !x.taken; }).length;
+        var msg;
+        if (!ps.length) {
+          msg = 'Chưa lưu được tệp nào.';
+        } else {
+          msg = 'Đã lưu ' + (ps.length - vids) + ' ảnh' + (vids ? ' và ' + vids + ' video' : '') +
+                ', xếp vào ' + g.ngay + ' ngày' + (g.moi ? ' (' + g.moi + ' ngày mới mở)' : '') + '.';
+          if (uoc) msg += ' ' + uoc + ' tệp không có ngày chụp gốc nên lấy ngày lưu tệp (có dấu ~).';
+          if (trong) msg += ' ' + trong + ' tệp không đọc được ngày nào nên để vào ' + shortDate(ngay) + '.';
+        }
+        if (res.skipped.length) msg += ' Bỏ qua: ' + res.skipped.join('; ') + '.';
         flash(msg, res.skipped.length > 0);
       });
     }
@@ -1609,7 +1655,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       pendingLog = null;
       if (!files.length || !target) return;
       flash('Đang xử lý ' + files.length + ' tệp, chờ xíu…', true);
-      savePics(files).then(function (res) {
+      savePics(files, function (xong, tong) {
+        flash('Đang xử lý ' + xong + '/' + tong + ' tệp, chờ xíu…', true);
+      }).then(function (res) {
         target.pics = (target.pics || []).concat(res.pics);
         commit();
         showUsage();
