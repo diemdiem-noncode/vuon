@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-232432">
+<html lang="vi" data-build="20261122-232944">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -831,24 +831,89 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
   }
 
-  // một khối APP1/Exif tối thiểu, chỉ mang ngày chụp
-  function exifApp1(ngay) {
-    var t = new Uint8Array(88), dv = new DataView(t.buffer);
-    t[0] = 0x4D; t[1] = 0x4D;                 // big-endian
-    dv.setUint16(2, 0x002A); dv.setUint32(4, 8);
-    dv.setUint16(8, 2);                       // IFD0: 2 mục
-    dv.setUint16(10, 0x0132); dv.setUint16(12, 2); dv.setUint32(14, 20); dv.setUint32(18, 68);
-    dv.setUint16(22, 0x8769); dv.setUint16(24, 4); dv.setUint32(26, 1);  dv.setUint32(30, 38);
-    dv.setUint32(34, 0);
-    dv.setUint16(38, 2);                      // Exif IFD: 2 mục
-    dv.setUint16(40, 0x9003); dv.setUint16(42, 2); dv.setUint32(44, 20); dv.setUint32(48, 68);
-    dv.setUint16(52, 0x9004); dv.setUint16(54, 2); dv.setUint32(56, 20); dv.setUint32(60, 68);
-    dv.setUint32(64, 0);
+  // đọc bề ngang / bề dọc từ khung SOF của tệp JPEG
+  function jpegKichCo(u8) {
+    var i = 2;
+    while (i + 9 < u8.length && u8[i] === 0xFF) {
+      var m = u8[i + 1];
+      if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { i += 2; continue; }
+      if (m === 0xDA) break;
+      var ln = (u8[i + 2] << 8) | u8[i + 3];
+      if (ln < 2) break;
+      if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+        return { h: (u8[i + 5] << 8) | u8[i + 6], w: (u8[i + 7] << 8) | u8[i + 8] };
+      }
+      i += 2 + ln;
+    }
+    return { w: 0, h: 0 };
+  }
+
+  // Khối APP1/Exif đầy đủ như tệp máy ảnh thật: có cả những mục chuẩn Exif
+  // bắt buộc (ExifVersion, ColorSpace, kích thước ảnh...). Thiếu chúng thì
+  // phần mềm khó tính có quyền bỏ qua cả khối, mất luôn ngày chụp.
+  function exifApp1(ngay, w, h) {
     var txt = ngay.slice(0, 4) + ':' + ngay.slice(5, 7) + ':' + ngay.slice(8, 10) + ' 12:00:00';
-    for (var i = 0; i < 19; i++) t[68 + i] = txt.charCodeAt(i);
-    t[87] = 0;
-    var out = new Uint8Array(98);
-    out[0] = 0xFF; out[1] = 0xE1; out[2] = 0; out[3] = 96;
+    function chu(t) { var a = [], i; for (i = 0; i < t.length; i++) a.push(t.charCodeAt(i)); a.push(0); return a; }
+    function tho(t) { var a = [], i; for (i = 0; i < t.length; i++) a.push(t.charCodeAt(i)); return a; }
+    function l32(v) { return [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]; }
+    function s16(v) { return [(v >>> 8) & 255, v & 255]; }
+    var ty = { BYTE: 1, ASCII: 2, SHORT: 3, LONG: 4, RAT: 5, UNDEF: 7 };
+    function co(t) { return t === 3 ? 2 : (t === 4 ? 4 : (t === 5 ? 8 : 1)); }
+
+    var ifd0 = [
+      [0x010F, ty.ASCII, chu('Vuon')],                 // Make
+      [0x0110, ty.ASCII, chu('So cay')],               // Model
+      [0x0112, ty.SHORT, s16(1)],                      // Orientation
+      [0x011A, ty.RAT,   l32(72).concat(l32(1))],      // XResolution
+      [0x011B, ty.RAT,   l32(72).concat(l32(1))],      // YResolution
+      [0x0128, ty.SHORT, s16(2)],                      // ResolutionUnit = inch
+      [0x0132, ty.ASCII, chu(txt)],                    // DateTime
+      [0x0213, ty.SHORT, s16(1)],                      // YCbCrPositioning
+      [0x8769, ty.LONG,  l32(0)]                       // trỏ sang Exif IFD, điền sau
+    ];
+    var ex = [
+      [0x9000, ty.UNDEF, tho('0232')],                 // ExifVersion
+      [0x9003, ty.ASCII, chu(txt)],                    // DateTimeOriginal
+      [0x9004, ty.ASCII, chu(txt)],                    // DateTimeDigitized
+      [0x9101, ty.UNDEF, [1, 2, 3, 0]],                // ComponentsConfiguration
+      [0xA000, ty.UNDEF, tho('0100')],                 // FlashpixVersion
+      [0xA001, ty.SHORT, s16(1)],                      // ColorSpace = sRGB
+      [0xA002, ty.LONG,  l32(w || 1)],                 // PixelXDimension
+      [0xA003, ty.LONG,  l32(h || 1)]                  // PixelYDimension
+    ];
+
+    var ifd0At = 8;
+    var exAt = ifd0At + 2 + 12 * ifd0.length + 4;
+    var cuoi = exAt + 2 + 12 * ex.length + 4;
+    function datCho(list) {
+      list.forEach(function (e) {
+        if (e[2].length > 4) { e[3] = cuoi; cuoi += e[2].length + (e[2].length % 2); }
+      });
+    }
+    datCho(ifd0); datCho(ex);
+    ifd0[ifd0.length - 1][2] = l32(exAt);              // giờ mới biết Exif IFD nằm đâu
+
+    var t = new Uint8Array(cuoi);
+    var dv = new DataView(t.buffer);
+    t[0] = 0x4D; t[1] = 0x4D; dv.setUint16(2, 0x002A); dv.setUint32(4, ifd0At);
+    function ghi(list, at) {
+      dv.setUint16(at, list.length);
+      list.forEach(function (e, k) {
+        var o = at + 2 + k * 12, d = e[2];
+        dv.setUint16(o, e[0]);
+        dv.setUint16(o + 2, e[1]);
+        dv.setUint32(o + 4, d.length / co(e[1]));
+        if (d.length > 4) { dv.setUint32(o + 8, e[3]); t.set(d, e[3]); }
+        else t.set(d, o + 8);
+      });
+      dv.setUint32(at + 2 + list.length * 12, 0);
+    }
+    ghi(ifd0, ifd0At); ghi(ex, exAt);
+
+    var than = 6 + t.length;                           // "Exif\0\0" + khối TIFF
+    var out = new Uint8Array(2 + 2 + than);
+    out[0] = 0xFF; out[1] = 0xE1;
+    out[2] = ((2 + than) >> 8) & 255; out[3] = (2 + than) & 255;
     out[4] = 0x45; out[5] = 0x78; out[6] = 0x69; out[7] = 0x66; out[8] = 0; out[9] = 0;
     out.set(t, 10);
     return out;
@@ -871,7 +936,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var sau = 2;
       if (u8[2] === 0xFF && u8[3] === 0xE0) sau = 4 + ((u8[4] << 8) | u8[5]);
       if (sau + 2 > u8.length) sau = 2;
-      return new Blob([u8.subarray(0, 2), exifApp1(ngay), u8.subarray(sau)],
+      var kc = jpegKichCo(u8);
+      return new Blob([u8.subarray(0, 2), exifApp1(ngay, kc.w, kc.h), u8.subarray(sau)],
                       { type: 'image/jpeg' });
     }).catch(function () { return blob; });
   }
