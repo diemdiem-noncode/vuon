@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-133347">
+<html lang="vi" data-build="20261122-134043">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -273,6 +273,8 @@ h2 {
   gap: 11px;
 }
 .card.open { grid-column: 1 / -1; border-color: var(--accent); }
+.card.gone { filter: grayscale(1); opacity: .6; background: var(--surface-2); }
+.card.gone:hover, .card.gone:focus-within { opacity: .85; }
 .card-top { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
 .mark {
   flex: none;
@@ -572,7 +574,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   var STAGES = {
     'new':     { label: 'Mới về',     hint: 'Cây mới về, chưa có rễ. Để chỗ khô thoáng cho vết cắt se mặt lại. Chưa tưới, chưa bón gì cả nhé.' },
     'rooting': { label: 'Đang ra rễ', hint: 'Giữ ẩm nhẹ ở đáy, mặt đất để khô. Đừng để khô cong, cũng đừng nhấc lên xem — nhấc một cái là gãy rễ non. Chưa bón đâu, rễ non chưa ăn được phân.' },
-    'settled': { label: 'Đã bám rễ',  hint: 'Tưới là tưới đẫm, tới khi nước chảy ra đáy. Rồi để khô hẳn mới tưới lại. Muốn bón thì pha nửa liều vào nước tưới, 2–3 lần tưới mới bón một lần, và chỉ bón khi cây đang lớn.' }
+    'settled': { label: 'Đã bám rễ',  hint: 'Tưới là tưới đẫm, tới khi nước chảy ra đáy. Rồi để khô hẳn mới tưới lại. Muốn bón thì pha nửa liều vào nước tưới, 2–3 lần tưới mới bón một lần, và chỉ bón khi cây đang lớn.' },
+    'dead':    { label: 'Ngỏm',       hint: 'Thẻ này giữ lại để còn xem ảnh và nhật ký cũ. Không còn nhắc tưới nữa. Lỡ bấm nhầm thì đổi lại ở ô dưới.' }
   };
   var SPOTS = { sun: 'Ngoài nắng', bright: 'Sáng mà mát', shade: 'Trong râm' };
   var KEY = 'vuon-sen-da.v1';
@@ -1196,6 +1199,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function dueList() {
     var out = [];
     plants.forEach(function (p) {
+      if (p.stage === 'dead') return;
       var w = dueIn(p.lastWater, waterEvery(p));
       if (waterEvery(p) && (w === null || w <= 0))
         out.push({ p: p, what: 'Tưới', act: 'water', n: w });
@@ -1234,6 +1238,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function nextInDays() {
     var best = null;
     plants.forEach(function (p) {
+      if (p.stage === 'dead') return;
       var n = dueIn(p.lastWater, waterEvery(p));
       if (n !== null && n > 0 && (best === null || n < best)) best = n;
     });
@@ -1261,12 +1266,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
 
   function renderStats() {
-    var rooting = 0;
+    var rooting = 0, alive = 0;
     plants.forEach(function (p) {
+      if (p.stage === 'dead') return;
+      alive++;
       if (p.stage === 'rooting' || p.stage === 'new') rooting++;
     });
     $('#stats').innerHTML =
-      '<div class="stat"><b>' + plants.length + '</b><span>cây đang trồng</span></div>' +
+      '<div class="stat"><b>' + alive + '</b><span>cây đang trồng</span></div>' +
       '<div class="stat"><b>' + rooting + '</b><span>đang ra rễ</span></div>';
   }
 
@@ -1306,7 +1313,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       g.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Vườn còn trống</b>Bấm “Thêm cây” để thêm bé đầu tiên.</div>';
       return;
     }
-    g.innerHTML = plants.map(card).join('');
+    var ordered = plants.slice().sort(function (a, b) {
+      return (a.stage === 'dead' ? 1 : 0) - (b.stage === 'dead' ? 1 : 0);
+    });
+    g.innerHTML = ordered.map(card).join('');
     putDetail(keep);
     hydratePics();
   }
@@ -1330,18 +1340,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function card(p) {
     var isOpen = openId === p.id;
 
-    var h = '<article class="card' + (isOpen ? ' open' : '') + '">';
+    var gone = p.stage === 'dead';
+    var h = '<article class="card' + (isOpen ? ' open' : '') + (gone ? ' gone' : '') + '">';
     h += '<div class="card-top"><div style="min-width:0;flex:1">' +
          '<h3>' + esc(p.name) + '</h3>' +
          (p.species ? '<p class="sp">' + esc(p.species) + '</p>' : '') +
          '</div></div>';
     h += '<div class="tags"><span class="tag stage">' + (STAGES[p.stage] ? STAGES[p.stage].label : '—') + '</span>' +
          '<span class="tag">' + (SPOTS[p.spot] || '—') + '</span></div>';
-    h += '<dl class="meters">' +
-         meterRow('Tưới', p.lastWater, waterEvery(p)) +
-         '</dl>';
+    if (!gone) {
+      h += '<dl class="meters">' +
+           meterRow('Tưới', p.lastWater, waterEvery(p)) +
+           '</dl>';
+    }
     h += '<div class="card-acts">' +
-         '<button class="btn btn-sm" type="button" data-act="water" data-id="' + p.id + '">Tưới rồi</button>' +
+         (gone ? '' :
+         '<button class="btn btn-sm" type="button" data-act="water" data-id="' + p.id + '">Tưới rồi</button>') +
          '<button class="btn btn-sm btn-ico" type="button" data-act="open" data-id="' + p.id + '"' +
            ' aria-expanded="' + (isOpen ? 'true' : 'false') + '"' +
            ' aria-label="' + (isOpen ? 'Thu lại' : 'Mở ra để xem và ghi chú') + '"' +
@@ -1681,7 +1695,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       p.name = nm; commit(); return;
     }
     if (act === 'set-sp') { p.species = el.value.trim(); commit(); return; }
-    if (act === 'set-stage') { p.stage = el.value; commit(); }
+    if (act === 'set-stage') {
+      var truoc = p.stage;
+      p.stage = el.value;
+      if (p.stage === 'dead' && truoc !== 'dead') {
+        logs.push({ id: newId('l'), plantId: p.id, date: today(),
+                    note: 'Ngỏm.', at: new Date().toISOString(), pics: [] });
+        sortLogs();
+        flash('Đã ghi lại ngày. Thẻ cây xuống cuối và chuyển xám, ảnh cũ vẫn còn.');
+      }
+      commit();
+    }
     if (act === 'set-spot')  { p.spot  = el.value; commit(); }
     if (act === 'set-wev')   { p.waterEvery = parseInt(el.value, 10) || 7; commit(); }
   });
