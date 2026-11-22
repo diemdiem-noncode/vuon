@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-151130">
+<html lang="vi" data-build="20261122-152647">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -322,6 +322,13 @@ h2 {
   margin-left: auto; min-width: 42px; padding: 7px 12px;
   font-size: 15px; line-height: 1.1; text-align: center;
 }
+.namebtn {
+  flex: none; cursor: pointer; font: inherit; font-size: 15px; line-height: 1;
+  padding: 7px 10px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2);
+}
+.namebtn.ok { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.name-edit { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 
 /* --- expanded detail --- */
 .detail {
@@ -446,25 +453,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
           <input id="np-name" name="name" placeholder="Aster tím mini" required>
         </div>
         <div class="field">
-          <label for="np-species">Cây gì (nếu biết)</label>
-          <input id="np-species" name="species" placeholder="Astrophytum asterias">
-        </div>
-      </div>
-      <div class="fields">
-        <div class="field">
           <label for="np-stage">Rễ tới đâu rồi</label>
           <select id="np-stage" name="stage">
             <option value="new">Mới về, chưa có rễ</option>
             <option value="rooting" selected>Đang ra rễ</option>
             <option value="settled">Đã bám rễ</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="np-spot">Đang để chỗ nào</label>
-          <select id="np-spot" name="spot">
-            <option value="sun">Ngoài nắng</option>
-            <option value="bright" selected>Sáng mà mát</option>
-            <option value="shade">Trong râm</option>
           </select>
         </div>
       </div>
@@ -555,7 +548,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   var SEED = {
     plants: [
-      { id: 'p-mau', name: 'Cây mẫu — đổi tên này nhé', species: 'Cây gì thì ghi ở đây, hoặc để trống',
+      { id: 'p-mau', name: 'Cây mẫu — đổi tên này nhé',
         stage: 'rooting', spot: 'shade', lastWater: '',
         waterEvery: 7, added: today() }
     ],
@@ -563,6 +556,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   };
 
   var plants = [], logs = [], openId = null, filter = 'all', confirmDel = null, fresh = false;
+  var editName = null;
   var confirmReset = false, confirmImport = false, pendingLog = null;
 
   function today() {
@@ -1167,6 +1161,18 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
   function commit() { save(); render(); }
 
+  function doneName(id) {
+    var p = byId(id), inp = document.getElementById('n-' + id);
+    if (!p) { editName = null; renderGrid(); return; }
+    if (inp) {
+      var nm = inp.value.trim();
+      if (!nm) { flash('Cây nào cũng cần một cái tên.'); inp.focus(); return; }
+      p.name = nm;
+    }
+    editName = null;
+    commit();
+  }
+
   /* ---------- render ---------- */
   function render() {
     renderStats(); renderGrid(); renderFilter(); renderFeed(); renderReset(); renderImport();
@@ -1270,10 +1276,27 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
     var gone = !!p.dead;
     var h = '<article class="card' + (isOpen ? ' open' : '') + (gone ? ' gone' : '') + '">';
+    var editing = editName === p.id;
     h += '<div class="card-top"><div style="min-width:0;flex:1">' +
-         '<h3>' + esc(p.name) + '</h3>' +
-         (p.species ? '<p class="sp">' + esc(p.species) + '</p>' : '') +
-         '</div></div>';
+         (editing
+           ? '<input class="name-edit" id="n-' + p.id + '" data-act="set-name" data-id="' + p.id + '" value="' + esc(p.name) + '">'
+           : '<h3>' + esc(p.name) + '</h3>') +
+         '</div>' +
+         (isOpen
+           ? '<button class="namebtn' + (editing ? ' ok' : '') + '" type="button" data-act="' +
+             (editing ? 'done-name' : 'edit-name') + '" data-id="' + p.id + '"' +
+             ' aria-label="' + (editing ? 'Xong, thôi sửa tên' : 'Sửa tên cây') + '"' +
+             ' title="' + (editing ? 'Xong' : 'Sửa tên') + '">' + (editing ? '✓' : '✎') + '</button>'
+           : '') +
+         '</div>';
+    if (isOpen) {
+      h += '<div class="fields">' +
+           '<div class="field"><label for="e-stage-' + p.id + '">Rễ tới đâu rồi</label><select id="e-stage-' + p.id + '" data-act="set-stage" data-id="' + p.id + '">' +
+           opts(STAGES, p.stage, true) + '</select></div>' +
+           '<div class="field"><label for="e-wev-' + p.id + '">Bao lâu tưới một lần</label><select id="e-wev-' + p.id + '" data-act="set-wev" data-id="' + p.id + '">' +
+           everyOpts(WATER_OPTS, waterEvery(p)) + '</select></div>' +
+           '</div>';
+    }
     if (!gone) {
       h += '<dl class="meters">' +
            meterRow('Tưới', p.lastWater, waterEvery(p)) +
@@ -1310,16 +1333,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '</div></div>' +
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu lại</button></div>' +
          '</form>';
-    h += '<div class="fields">' +
-         '<div class="field" style="flex:2 1 180px"><label for="e-name-' + p.id + '">Tên cây</label>' +
-         '<input id="e-name-' + p.id + '" data-act="set-name" data-id="' + p.id + '" value="' + esc(p.name) + '"></div>' +
-         '<div class="field" style="flex:2 1 180px"><label for="e-sp-' + p.id + '">Cây gì (nếu biết)</label>' +
-         '<input id="e-sp-' + p.id + '" data-act="set-sp" data-id="' + p.id + '" value="' + esc(p.species || '') + '" placeholder="Astrophytum asterias"></div>' +
-         '<div class="field"><label for="e-stage-' + p.id + '">Rễ tới đâu rồi</label><select id="e-stage-' + p.id + '" data-act="set-stage" data-id="' + p.id + '">' +
-         opts(STAGES, p.stage, true) + '</select></div>' +
-         '<div class="field"><label for="e-wev-' + p.id + '">Bao lâu tưới một lần</label><select id="e-wev-' + p.id + '" data-act="set-wev" data-id="' + p.id + '">' +
-         everyOpts(WATER_OPTS, waterEvery(p)) + '</select></div>' +
-         '</div>';
     h += '<div><h3 style="font-size:14px;margin:0 0 6px">Đã ghi những gì</h3>';
     h += mine.length
       ? '<ol class="hist">' + mine.map(function (l) { return entry(l, false); }).join('') + '</ol>'
@@ -1432,7 +1445,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (!f.hidden) $('#np-name').focus();
       return;
     }
-    if (act === 'open') { openId = openId === id ? null : id; confirmDel = null; renderGrid(); return; }
+    if (act === 'open') { openId = openId === id ? null : id; confirmDel = null; editName = null; renderGrid(); return; }
+    if (act === 'edit-name') {
+      editName = id; renderGrid();
+      setTimeout(function () {
+        var inp = document.getElementById('n-' + id);
+        if (inp) { inp.focus(); inp.select(); }
+      }, 0);
+      return;
+    }
+    if (act === 'done-name') { doneName(id); return; }
     if (act === 'water') { p = byId(id); if (p) { p.lastWater = today(); commit(); } return; }
     if (act === 'ask-del') { confirmDel = id; renderGrid(); return; }
     if (act === 'cancel-del') { confirmDel = null; renderGrid(); return; }
@@ -1530,9 +1552,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       plants.push({
         id: newId('p'),
         name: name,
-        species: f.elements.species.value.trim(),
         stage: f.elements.stage.value,
-        spot: f.elements.spot.value,
         lastWater: '', waterEvery: 7,
         added: today()
       });
@@ -1616,10 +1636,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!p) return;
     if (act === 'set-name') {
       var nm = el.value.trim();
-      if (!nm) { el.value = p.name; flash('Cây nào cũng cần một cái tên.'); return; }
-      p.name = nm; commit(); return;
+      if (!nm) { flash('Cây nào cũng cần một cái tên.'); return; }
+      p.name = nm; save(); return;
     }
-    if (act === 'set-sp') { p.species = el.value.trim(); commit(); return; }
     if (act === 'set-stage') { p.stage = el.value; commit(); }
     if (act === 'set-dead') {
       var batDau = el.checked && !p.dead;
@@ -1637,6 +1656,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   });
 
   document.addEventListener('keydown', function (ev) {
+    var t = ev.target;
+    if (t && t.getAttribute && t.getAttribute('data-act') === 'set-name' && ev.key === 'Enter') {
+      ev.preventDefault();
+      doneName(t.getAttribute('data-id'));
+      return;
+    }
     if ($('#lightbox').hidden) return;
     if (ev.key === 'Escape') { closeLb(); return; }
     if (ev.key === 'ArrowLeft') { stepPic(-1); return; }
