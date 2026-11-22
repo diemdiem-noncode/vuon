@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-000604">
+<html lang="vi" data-build="20261123-001908">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -136,7 +136,19 @@ img{max-width:100%}
 .lb-top .lb-bar { flex: 0 0 auto; }
 .lb-top .lb-head { flex: 1 1 auto; }
 .lb-bar .lb-del { color: var(--alert); }
-.lb-bar .lb-del.hoi { background: var(--alert); color: #FFFFFF; border-color: var(--alert); }
+.xacnhan {
+  position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.62);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.xacnhan[hidden] { display: none; }
+.xacnhan-hop {
+  width: 100%; max-width: 330px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 14px; padding: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.4);
+}
+.xacnhan-tieu { margin: 0; font-size: 15.5px; font-weight: 600; color: var(--ink); }
+.xacnhan-phu { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
 .dau-chon { display: flex; flex-wrap: wrap; gap: 10px; }
 .dau-o {
   font: inherit; font-size: 11.5px; color: var(--ink-2); cursor: pointer;
@@ -478,7 +490,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
           <select id="np-stage" name="stage">
             <option value="new">Mới về, chưa có rễ</option>
             <option value="rooting" selected>Đang ra rễ</option>
-            <option value="settled">Đã bám rễ</option>
           </select>
         </div>
       </div>
@@ -557,6 +568,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     <button class="btn btn-sm" type="button" id="lbNext" data-act="lb-next" aria-label="Ảnh sau">›</button>
   </div>
 </div>
+<div class="xacnhan" id="hoiXoa" hidden>
+  <div class="xacnhan-hop" role="alertdialog" aria-labelledby="hoiTieu">
+    <p class="xacnhan-tieu" id="hoiTieu">Xóa tấm ảnh này?</p>
+    <p class="xacnhan-phu" id="hoiPhu"></p>
+    <div class="row-end">
+      <button class="btn btn-sm" type="button" data-act="hoi-thoi">Thôi</button>
+      <button class="btn btn-sm btn-danger" type="button" data-act="hoi-xoa">Xóa hẳn</button>
+    </div>
+  </div>
+</div>
 <input type="file" id="morePic" accept="image/*,video/*" multiple
        style="position:absolute;width:1px;height:1px;opacity:0;clip:rect(0 0 0 0)">
 <p class="status" id="status" hidden></p>
@@ -573,7 +594,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   var STAGES = {
     'new':     { label: 'Mới về',     hint: 'Cây mới về, chưa có rễ. Để chỗ khô thoáng cho vết cắt se mặt lại. Chưa tưới, chưa bón gì cả nhé.' },
     'rooting': { label: 'Đang ra rễ', hint: 'Giữ ẩm nhẹ ở đáy, mặt đất để khô. Đừng để khô cong, cũng đừng nhấc lên xem — nhấc một cái là gãy rễ non. Chưa bón đâu, rễ non chưa ăn được phân.' },
-    'settled': { label: 'Đã bám rễ',  hint: 'Tưới là tưới đẫm, tới khi nước chảy ra đáy. Rồi để khô hẳn mới tưới lại. Muốn bón thì pha nửa liều vào nước tưới, 2–3 lần tưới mới bón một lần, và chỉ bón khi cây đang lớn.' }
+    '':        { label: '—',          hint: '' }
   };
   var KEY = 'vuon-sen-da.v1';
 
@@ -1267,7 +1288,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       .catch(function () { return null; });
   }
 
-  var MAX_VIDEO = 80 * 1024 * 1024;
+  var MAX_VIDEO = 220 * 1024 * 1024;
 
   function videoMeta(file) {
     return new Promise(function (res) {
@@ -1304,6 +1325,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     });
   }
 
+  // iPhone nhiều khi giao tệp .MOV mà không ghi loại — trước đây app tưởng là
+  // ảnh, nén không được rồi bỏ qua (hoặc cất nhầm), nên mất video và mất ngày quay.
+  function laVideo(f) {
+    if ((f.type || '').indexOf('video/') === 0) return true;
+    return /\.(mov|mp4|m4v|3gp|3g2|avi|mkv|webm|mpg|mpeg|qt)$/i.test(f.name || '');
+  }
+
   function videoExt(f) {
     var m = /\.([a-z0-9]{2,4})$/i.exec(f.name || '');
     if (m) return m[1].toLowerCase();
@@ -1321,7 +1349,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   function saveOneVideo(f, skipped) {
     if (f.size > MAX_VIDEO) {
-      skipped.push('"' + f.name + '" nặng ' + (f.size / 1048576).toFixed(0) + ' MB, quá 80 MB');
+      skipped.push('"' + f.name + '" nặng ' + (f.size / 1048576).toFixed(0) +
+                   ' MB, quá 220 MB nên chưa nhận');
       return Promise.resolve(null);
     }
     return takenOfVideo(f).then(function (meta) {
@@ -1350,7 +1379,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }
     use.forEach(function (f) {
       chain = chain.then(function () {
-        if (f.type.indexOf('video/') === 0) {
+        if (laVideo(f)) {
           return saveOneVideo(f, skipped).then(function (rec) { if (rec) out.push(rec); });
         }
         return takenOf(f).then(function (meta) {
@@ -1637,7 +1666,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
 
   var lbSet = [], lbIdx = 0, lbLog = null, lbScale = 1, lbPan = { x: 0, y: 0 };
-  var ZMAX = 5, xoaHoi = false, xoaHen = null;
+  var ZMAX = 5;
   var lbFile = null, lbDlUrl = null;
 
   // gom hết ảnh của một cây, xếp từ cũ tới mới, kèm ghi chú của ngày đó
@@ -1734,11 +1763,25 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   function datNutXoa(nhan) {
     var b = $('#lbDel');
-    if (!b) return;
-    clearTimeout(xoaHen);
-    xoaHoi = false;
-    b.classList.remove('hoi');
-    b.textContent = nhan || '✕ Xóa';
+    if (b) b.textContent = nhan || '✕ Xóa';
+    dongHoiXoa();
+  }
+
+  function moHoiXoa() {
+    var p = lbSet[lbIdx];
+    if (!p) return;
+    var vid = p.kind === 'video', ngay = picDay(p, p.log || lbLog);
+    var t = $('#hoiTieu'), ph = $('#hoiPhu'), h = $('#hoiXoa');
+    if (t) t.textContent = vid ? 'Xóa video này?' : 'Xóa tấm ảnh này?';
+    if (ph) ph.textContent =
+      (ngay ? (vid ? 'Video ngày ' : 'Ảnh ngày ') + ngay + '. ' : '') +
+      'Xóa rồi là mất hẳn khỏi máy, không lấy lại được.';
+    if (h) h.hidden = false;
+  }
+
+  function dongHoiXoa() {
+    var h = $('#hoiXoa');
+    if (h) h.hidden = true;
   }
 
   function xoaAnhDangXem() {
@@ -1934,7 +1977,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         if (o && Array.isArray(o.plants) && Array.isArray(o.logs)) {
           plants = o.plants; logs = o.logs;
           plants.forEach(function (p) {
-            if (p.stage === 'dead') { p.dead = true; p.stage = 'settled'; }
+            if (p.stage === 'dead') { p.dead = true; p.stage = ''; }
+            if (p.stage === 'settled') p.stage = '';
           });
           sortLogs(); return;
         }
@@ -2080,7 +2124,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var isOpen = openId === p.id;
 
     var gone = !!p.dead;
-    var h = '<article class="card' + (isOpen ? ' open' : '') + (gone ? ' gone' : '') + '">';
+    var h = '<article class="card' + (isOpen ? ' open' : '') + (gone ? ' gone' : '') +
+            '" data-the="' + p.id + '">';
     var editing = editName === p.id;
     h += '<div class="card-top"><div style="min-width:0;flex:1">' +
          (editing
@@ -2120,24 +2165,34 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return h + '</article>';
   }
 
+  // đưa thẻ cây về chỗ nhìn thấy được, chừa khoảng trống phía trên
+  function keoToiThe(id) {
+    requestAnimationFrame(function () {
+      var el = document.querySelector('.card[data-the="' + id + '"]');
+      if (!el) return;
+      var r = el.getBoundingClientRect();
+      var tren = (window.pageYOffset || document.documentElement.scrollTop || 0) + r.top - 12;
+      try { window.scrollTo({ top: Math.max(0, tren), behavior: 'smooth' }); }
+      catch (e) { window.scrollTo(0, Math.max(0, tren)); }
+    });
+  }
+
   function detail(p) {
     var mine = logs.filter(function (l) { return l.plantId === p.id; });
     var h = '<div class="detail">';
     h += '<form data-act="note" data-id="' + p.id + '">' +
-         '<div class="fields">' +
-         '<div class="field" style="flex:0 1 150px"><label for="d-date-' + p.id + '">Ngày</label>' +
+         '<div class="fields" style="align-items:flex-end">' +
+         '<div class="field" style="flex:0 0 136px"><label for="d-date-' + p.id + '">Ngày</label>' +
          '<input type="date" id="d-date-' + p.id + '" name="date" value="' + today() + '"></div>' +
-         '</div>' +
-         '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú (nếu muốn)</label>' +
-         '<textarea id="d-note-' + p.id + '" name="note" placeholder="Hôm nay cây thế nào…"></textarea></div>' +
-         '<div class="field" style="margin-top:10px"><span class="lbl">Ảnh hoặc video</span>' +
+         '<div class="field" style="flex:1 1 150px">' +
          '<div class="filepick">' +
          '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*,video/*" multiple>' +
-         '<label class="filebtn" for="d-pic-' + p.id + '">Chọn ảnh hoặc video</label>' +
+         '<label class="filebtn" for="d-pic-' + p.id + '">Chọn ảnh / video</label>' +
          '<span class="filename">chưa chọn gì</span>' +
+         '</div></div>' +
          '</div>' +
-         '<p class="sp" style="margin:6px 0 0">Chọn cả xấp cũng được (tối đa 60 tệp một lượt). ' +
-         'Mỗi tấm tự về đúng ngày chụp của nó.</p></div>' +
+         '<div class="field" style="margin-top:8px">' +
+         '<textarea id="d-note-' + p.id + '" name="note" rows="2" placeholder="Hôm nay cây thế nào…"></textarea></div>' +
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu lại</button></div>' +
          '</form>';
     h += '<div><h3 style="font-size:14px;margin:0 0 6px">Đã ghi những gì</h3>';
@@ -2189,9 +2244,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
           '<div class="thumbs">' + ps.map(function (p) {
           var day = picDay(p, l), sure = p.src === 'exif', vid = p.kind === 'video';
           var what = vid ? 'Video' : 'Ảnh';
+          // trùng ngày của dòng thì khỏi ghi lại, dòng đã có ngày ở bên trái rồi
+          var khac = !p.taken || p.taken !== l.date;
           return '<figure class="pic">' +
-            '<span class="picdate' + (sure ? '' : ' guess') + '">' +
-              (sure ? '' : '~') + day + '</span>' +
+            (khac ? '<span class="picdate' + (sure ? '' : ' guess') + '">' +
+              (sure ? '' : '~') + day + '</span>' : '') +
             '<span class="pic-wrap">' +
             '<img class="thumb" data-photo="' + (vid ? p.id + ':p' : p.id) + '" data-pic="' + p.id + '"' +
               ' data-log="' + l.id + '" loading="lazy"' +
@@ -2238,6 +2295,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }
     var pic = ev.target.closest('[data-pic]');
     if (pic) { openPic(pic.getAttribute('data-pic'), pic.getAttribute('data-log')); return; }
+    if (ev.target.id === 'hoiXoa') { dongHoiXoa(); return; }
     if (ev.target.id === 'lightbox' || ev.target.id === 'lbStage') { closeLb(); return; }
     if (ev.target.id === 'lbImg' && lbScale > 1) { resetZoom(); return; }
     var tb = ev.target.closest('[data-theme-set]');
@@ -2251,22 +2309,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!b || b.tagName === 'SELECT' || b.tagName === 'FORM') return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), p;
 
-    if (act === 'lb-del') {
-      var nx = $('#lbDel');
-      if (!nx) return;
-      if (!xoaHoi) {
-        xoaHoi = true;
-        nx.classList.add('hoi');
-        nx.textContent = 'Xóa thật?';
-        clearTimeout(xoaHen);
-        xoaHen = setTimeout(function () { datNutXoa(); }, 5000);
-        return;
-      }
-      clearTimeout(xoaHen);
-      xoaHoi = false;
-      xoaAnhDangXem();
-      return;
-    }
+    if (act === 'lb-del') { moHoiXoa(); return; }
+    if (act === 'hoi-thoi') { dongHoiXoa(); return; }
+    if (act === 'hoi-xoa') { dongHoiXoa(); xoaAnhDangXem(); return; }
     if (act === 'lb-close') { closeLb(); return; }
     if (act === 'lb-prev') { stepPic(-1); return; }
     if (act === 'lb-next') { stepPic(1); return; }
@@ -2277,9 +2322,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       return;
     }
     if (act === 'open') {
-      openId = openId === id ? null : id;
+      var moRa = openId !== id;
+      openId = moRa ? id : null;
       confirmDel = null; editName = null; editLog = null;
-      renderGrid(); return;
+      renderGrid();
+      // thẻ mở ra chiếm cả hàng nên mọi thứ bên dưới xê dịch — kéo thẳng tới nó,
+      // khỏi phải đi tìm
+      keoToiThe(id);
+      return;
     }
     if (act === 'edit-note') {
       editLog = id; render();
@@ -2571,6 +2621,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (t && t.getAttribute && t.getAttribute('data-act') === 'set-name' && ev.key === 'Enter') {
       ev.preventDefault();
       doneName(t.getAttribute('data-id'));
+      return;
+    }
+    if (!$('#hoiXoa').hidden) {
+      if (ev.key === 'Escape') dongHoiXoa();
       return;
     }
     if ($('#lightbox').hidden) return;
