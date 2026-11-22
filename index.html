@@ -409,7 +409,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 }
 .entry { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .entry p { margin: 0; overflow-wrap: anywhere; font-size: 14px; }
-.entry .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11.5px; color: var(--ink-2); }
+.entry .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 11.5px; color: var(--ink-2); }
+.addpic {
+  font: inherit; font-size: 11.5px; cursor: pointer;
+  padding: 3px 9px; border-radius: 20px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+}
 .who { font-weight: 600; color: var(--accent); }
 .feed { list-style: none; margin: 0; padding: 0; }
 .del { flex: none; }
@@ -551,6 +556,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     <button class="btn btn-sm" type="button" id="lbNext" data-act="lb-next" aria-label="Ảnh sau">›</button>
   </div>
 </div>
+<input type="file" id="morePic" accept="image/*,video/*" multiple
+       style="position:absolute;width:1px;height:1px;opacity:0;clip:rect(0 0 0 0)">
 <p class="status" id="status" hidden></p>
 
 <script>
@@ -568,7 +575,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     'settled': { label: 'Đã bám rễ',  hint: 'Tưới là tưới đẫm, tới khi nước chảy ra đáy. Rồi để khô hẳn mới tưới lại. Muốn bón thì pha nửa liều vào nước tưới, 2–3 lần tưới mới bón một lần, và chỉ bón khi cây đang lớn.' }
   };
   var SPOTS = { sun: 'Ngoài nắng', bright: 'Sáng mà mát', shade: 'Trong râm' };
-  var MARKS = { ok: 'Ổn', watch: 'Để ý', alert: 'Không ổn' };
   var KEY = 'vuon-sen-da.v1';
 
   var SEED = {
@@ -581,7 +587,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   };
 
   var plants = [], logs = [], openId = null, filter = 'all', confirmDel = null, fresh = false;
-  var confirmReset = false, confirmImport = false;
+  var confirmReset = false, confirmImport = false, pendingLog = null;
 
   function today() {
     var d = new Date();
@@ -642,10 +648,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!s) return '';
     var p = s.split('-');
     return p[2] + '/' + p[1];
-  }
-  function lastMark(id) {
-    for (var i = 0; i < logs.length; i++) if (logs[i].plantId === id) return logs[i].mark;
-    return null;
   }
   function newId(pre) { return pre + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function byId(id) { return plants.filter(function (p) { return p.id === id; })[0]; }
@@ -1259,17 +1261,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
 
   function renderStats() {
-    var rooting = 0, flag = 0;
+    var rooting = 0;
     plants.forEach(function (p) {
       if (p.stage === 'rooting' || p.stage === 'new') rooting++;
-      var w = dueIn(p.lastWater, waterEvery(p));
-      var overdue = waterEvery(p) && (w === null || w <= 0);
-      if (overdue || lastMark(p.id) === 'alert') flag++;
     });
     $('#stats').innerHTML =
       '<div class="stat"><b>' + plants.length + '</b><span>cây đang trồng</span></div>' +
-      '<div class="stat"><b>' + rooting + '</b><span>đang ra rễ</span></div>' +
-      '<div class="stat' + (flag ? ' flag' : '') + '"><b>' + flag + '</b><span>cần ngó lại</span></div>';
+      '<div class="stat"><b>' + rooting + '</b><span>đang ra rễ</span></div>';
   }
 
   function grabDetail() {
@@ -1330,11 +1328,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
 
   function card(p) {
-    var mk = lastMark(p.id);
     var isOpen = openId === p.id;
 
     var h = '<article class="card' + (isOpen ? ' open' : '') + '">';
-    h += '<div class="card-top"><span class="mark ' + (mk || '') + '"></span><div style="min-width:0;flex:1">' +
+    h += '<div class="card-top"><div style="min-width:0;flex:1">' +
          '<h3>' + esc(p.name) + '</h3>' +
          (p.species ? '<p class="sp">' + esc(p.species) + '</p>' : '') +
          '</div></div>';
@@ -1363,8 +1360,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
          '<div class="fields">' +
          '<div class="field" style="flex:0 1 150px"><label for="d-date-' + p.id + '">Ngày</label>' +
          '<input type="date" id="d-date-' + p.id + '" name="date" value="' + today() + '"></div>' +
-         '<div class="field" style="flex:0 1 150px"><label for="d-mark-' + p.id + '">Cây sao rồi</label>' +
-         '<select id="d-mark-' + p.id + '" name="mark"><option value="ok">Ổn</option><option value="watch">Để ý</option><option value="alert">Không ổn</option></select></div>' +
          '</div>' +
          '<div class="field" style="margin-top:10px"><label for="d-note-' + p.id + '">Ghi chú (nếu muốn)</label>' +
          '<textarea id="d-note-' + p.id + '" name="note" placeholder="Hôm nay cây thế nào…"></textarea></div>' +
@@ -1446,7 +1441,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       })() +
       '<div class="meta">' +
       (withName && p ? '<span class="who">' + esc(p.name) + '</span>' : '') +
-      '<span class="mark ' + (l.mark || '') + '" style="margin:0"></span>' + (MARKS[l.mark] || '') +
+      '<button class="addpic" type="button" data-act="add-pic" data-id="' + l.id + '">+ Ảnh</button>' +
       '</div></div>' +
       '<button class="btn btn-sm del" type="button" data-act="del-log" data-id="' + l.id + '" aria-label="Xóa ghi chú">×</button></li>';
   }
@@ -1511,6 +1506,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       logs = logs.filter(function (l) { return l.plantId !== id; });
       plants = plants.filter(function (x) { return x.id !== id; });
       commit();
+      return;
+    }
+    if (act === 'add-pic') {
+      pendingLog = id;
+      var mp = $('#morePic');
+      if (mp) { mp.value = ''; mp.click(); }
       return;
     }
     if (act === 'del-log') {
@@ -1614,7 +1615,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         id: newId('l'),
         plantId: f.getAttribute('data-id'),
         date: f.elements.date.value || today(),
-        mark: f.elements.mark.value,
         note: note,
         at: new Date().toISOString(),
         pics: []
@@ -1644,6 +1644,25 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   document.addEventListener('change', function (ev) {
     var el = ev.target;
     if (el.id === 'filter') { filter = el.value; renderFeed(); return; }
+    if (el.id === 'morePic') {
+      var files = el.files ? [].slice.call(el.files) : [];
+      var target = logs.filter(function (x) { return x.id === pendingLog; })[0];
+      pendingLog = null;
+      if (!files.length || !target) return;
+      flash('Đang xử lý ' + files.length + ' tệp, chờ xíu…', true);
+      savePics(files).then(function (res) {
+        target.pics = (target.pics || []).concat(res.pics);
+        commit();
+        showUsage();
+        var msg = res.pics.length
+          ? 'Đã thêm ' + res.pics.length + ' tệp vào ghi chú.'
+          : 'Chưa thêm được tệp nào.';
+        if (res.skipped.length) msg += ' Bỏ qua ' + res.skipped.join('; ') + '.';
+        flash(msg, res.skipped.length > 0);
+      });
+      el.value = '';
+      return;
+    }
     if (el.type === 'file' && el.name === 'pic') {
       var tag = el.parentNode && el.parentNode.querySelector('.filename');
       if (tag) {
