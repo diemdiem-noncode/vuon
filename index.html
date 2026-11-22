@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-230159">
+<html lang="vi" data-build="20261122-231738">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -131,7 +131,12 @@ img{max-width:100%}
 .lb-bar .btn[disabled] { opacity: .35; }
 .lb-bar .btn, .lb-bar a.btn {
   background: #FFFFFF; color: #16181A; border-color: #FFFFFF; text-decoration: none;
+  white-space: nowrap;
 }
+.lb-top .lb-bar { flex: 0 0 auto; }
+.lb-top .lb-head { flex: 1 1 auto; }
+.lb-bar .lb-del { color: var(--alert); }
+.lb-bar .lb-del.hoi { background: var(--alert); color: #FFFFFF; border-color: var(--alert); }
 .filepick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .filepick input[type="file"] {
   position: absolute; width: 1px; height: 1px; opacity: 0;
@@ -523,6 +528,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     </div>
     <div class="lb-bar">
       <a class="btn btn-sm" id="lbDown" download>Tải ảnh về</a>
+      <button class="btn btn-sm lb-del" type="button" id="lbDel" data-act="lb-del">✕ Xóa</button>
       <button class="btn btn-sm" type="button" data-act="lb-close">Đóng</button>
     </div>
   </div>
@@ -1331,7 +1337,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     })(els[i]);
   }
 
-  var lbSet = [], lbIdx = 0, lbLog = null, lbZoom = 0, lbPan = { x: 0, y: 0 };
+  var lbSet = [], lbIdx = 0, lbLog = null, lbScale = 1, lbPan = { x: 0, y: 0 };
+  var ZMAX = 5, xoaHoi = false, xoaHen = null;
   var lbFile = null, lbDlUrl = null;
 
   // gom hết ảnh của một cây, xếp từ cũ tới mới, kèm ghi chú của ngày đó
@@ -1366,6 +1373,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     try { ve.pause(); } catch (e) {}
     ve.removeAttribute('src'); ve.load && ve.load();
     $('#lightbox').hidden = true;
+    datNutXoa();
   }
 
   function showPic() {
@@ -1386,6 +1394,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     ve.removeAttribute('src'); ve.load && ve.load();
     im.hidden = vid; ve.hidden = !vid;
     $('#lbStage').classList.toggle('is-video', vid);
+    datNutXoa(vid ? '✕ Xóa video' : '✕ Xóa');
     var dow = $('#lbDown');
     dow.textContent = vid ? 'Tải video về' : 'Tải ảnh về';
     dow.title = 'Tệp lưu về vẫn mang đúng ngày chụp';
@@ -1417,6 +1426,48 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         } catch (e) {}
       });
     });
+  }
+
+  function datNutXoa(nhan) {
+    var b = $('#lbDel');
+    if (!b) return;
+    clearTimeout(xoaHen);
+    xoaHoi = false;
+    b.classList.remove('hoi');
+    b.textContent = nhan || '✕ Xóa';
+  }
+
+  function xoaAnhDangXem() {
+    var p = lbSet[lbIdx];
+    if (!p) return;
+    var l = p.log || lbLog;
+    if (!l) { closeLb(); return; }
+    var pid = l.plantId, vid = p.kind === 'video', ke = null;
+    if (lbIdx + 1 < lbSet.length) ke = lbSet[lbIdx + 1].id;
+    else if (lbIdx > 0) ke = lbSet[lbIdx - 1].id;
+
+    l.pics = (l.pics || []).filter(function (q) {
+      return (typeof q === 'string' ? q : (q && q.id)) !== p.id;
+    });
+    delPic(p.id);
+    // dòng ghi chú trống trơn thì dọn luôn, khỏi để lại dòng rỗng
+    if (!(l.pics || []).length && !(l.note || '').trim()) {
+      logs = logs.filter(function (x) { return x.id !== l.id; });
+    }
+    commit();
+    showUsage();
+
+    lbSet = plantPics(pid);
+    if (!lbSet.length) {
+      closeLb();
+      flash('Đã xóa. Cây này hết ảnh rồi.');
+      return;
+    }
+    lbIdx = 0;
+    for (var i = 0; i < lbSet.length; i++) if (lbSet[i].id === ke) lbIdx = i;
+    lbLog = lbSet[lbIdx].log || lbLog;
+    showPic();
+    flash(vid ? 'Đã xóa video đó.' : 'Đã xóa tấm đó.');
   }
 
   function dayDiff(a, b) {
@@ -1451,35 +1502,56 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     showPic();
   }
 
+  // giữ ảnh không trôi ra ngoài khung
+  function ghimPan() {
+    var im = $('#lbImg'), st = $('#lbStage');
+    if (!im || !st) return;
+    // đo bằng kích thước gốc nhân mức phóng mới — không đo khung đang hiện,
+    // vì lúc này nó vẫn còn mang mức phóng cũ
+    var k = st.getBoundingClientRect();
+    var mx = Math.max(0, (im.offsetWidth * lbScale - k.width) / 2);
+    var my = Math.max(0, (im.offsetHeight * lbScale - k.height) / 2);
+    lbPan.x = Math.max(-mx, Math.min(mx, lbPan.x));
+    lbPan.y = Math.max(-my, Math.min(my, lbPan.y));
+  }
+
   function applyPan() {
     var im = $('#lbImg');
     if (!im) return;
-    im.style.transform = lbZoom
-      ? 'translate(' + lbPan.x + 'px,' + lbPan.y + 'px) scale(2.5)' : '';
+    if (lbScale <= 1) { im.classList.remove('zoomed'); im.style.transform = ''; return; }
+    im.classList.add('zoomed');
+    ghimPan();
+    im.style.transform =
+      'translate(' + lbPan.x + 'px,' + lbPan.y + 'px) scale(' + lbScale + ')';
   }
 
   function resetZoom() {
-    lbZoom = 0; lbPan.x = 0; lbPan.y = 0;
+    lbScale = 1; lbPan.x = 0; lbPan.y = 0;
     var im = $('#lbImg');
     if (im) { im.classList.remove('zoomed'); im.style.transformOrigin = ''; im.style.transform = ''; }
   }
 
-  function toggleZoom(pt) {
+  // phóng quanh một điểm — điểm đó đứng yên dưới ngón tay
+  function zoomTo(s, pt) {
     var im = $('#lbImg');
     if (!im) return;
-    if (lbZoom) { resetZoom(); return; }
-    lbZoom = 1; lbPan.x = 0; lbPan.y = 0;
-    var ox = 50, oy = 50;
+    s = Math.max(1, Math.min(ZMAX, s));
+    if (s === lbScale) return;
     if (pt) {
       var r = im.getBoundingClientRect();
-      if (r.width && r.height) {
-        ox = Math.max(0, Math.min(100, ((pt.clientX - r.left) / r.width) * 100));
-        oy = Math.max(0, Math.min(100, ((pt.clientY - r.top) / r.height) * 100));
-      }
+      var dx = pt.clientX - (r.left + r.width / 2);
+      var dy = pt.clientY - (r.top + r.height / 2);
+      lbPan.x += dx * (1 - s / lbScale);
+      lbPan.y += dy * (1 - s / lbScale);
     }
-    im.style.transformOrigin = ox + '% ' + oy + '%';
-    im.classList.add('zoomed');
+    lbScale = s;
+    if (lbScale <= 1.02) { resetZoom(); return; }
     applyPan();
+  }
+
+  function toggleZoom(pt) {
+    if (lbScale > 1) resetZoom();
+    else zoomTo(2.5, pt);
   }
 
   var BK_KEY = 'vuon-lan-cat', giuLau = null;
@@ -1854,7 +1926,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var pic = ev.target.closest('[data-pic]');
     if (pic) { openPic(pic.getAttribute('data-pic'), pic.getAttribute('data-log')); return; }
     if (ev.target.id === 'lightbox' || ev.target.id === 'lbStage') { closeLb(); return; }
-    if (ev.target.id === 'lbImg' && lbZoom) { resetZoom(); return; }
+    if (ev.target.id === 'lbImg' && lbScale > 1) { resetZoom(); return; }
     var tb = ev.target.closest('[data-theme-set]');
     if (tb) {
       var th = tb.getAttribute('data-theme-set');
@@ -1866,6 +1938,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!b || b.tagName === 'SELECT' || b.tagName === 'FORM') return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), p;
 
+    if (act === 'lb-del') {
+      var nx = $('#lbDel');
+      if (!nx) return;
+      if (!xoaHoi) {
+        xoaHoi = true;
+        nx.classList.add('hoi');
+        nx.textContent = 'Xóa thật?';
+        clearTimeout(xoaHen);
+        xoaHen = setTimeout(function () { datNutXoa(); }, 5000);
+        return;
+      }
+      clearTimeout(xoaHen);
+      xoaHoi = false;
+      xoaAnhDangXem();
+      return;
+    }
     if (act === 'lb-close') { closeLb(); return; }
     if (act === 'lb-prev') { stepPic(-1); return; }
     if (act === 'lb-next') { stepPic(1); return; }
@@ -2176,27 +2264,56 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   (function () {
     var sx = 0, sy = 0, px = 0, py = 0, moved = false, lastTap = 0;
+    var chum = false, d0 = 0, s0 = 1, mx0 = 0, my0 = 0;
     function inStage(ev) {
       if ($('#lightbox').hidden) return false;
       var cur = lbSet[lbIdx];
       if (cur && cur.kind === 'video') return false;
       return ev.target.closest && ev.target.closest('#lbStage');
     }
+    function xa(a, b) {
+      var dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
     document.addEventListener('touchstart', function (ev) {
-      if (!inStage(ev) || ev.touches.length !== 1) return;
+      if (!inStage(ev)) return;
+      if (ev.touches.length === 2) {
+        chum = true; moved = true; lastTap = 0;
+        d0 = xa(ev.touches[0], ev.touches[1]); s0 = lbScale;
+        mx0 = (ev.touches[0].clientX + ev.touches[1].clientX) / 2;
+        my0 = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
+        return;
+      }
+      if (ev.touches.length !== 1) return;
       var t = ev.touches[0];
       sx = t.clientX; sy = t.clientY; px = lbPan.x; py = lbPan.y; moved = false;
     }, { passive: true });
     document.addEventListener('touchmove', function (ev) {
-      if (!inStage(ev) || ev.touches.length !== 1) return;
+      if (!inStage(ev)) return;
+      if (chum && ev.touches.length === 2) {
+        var d = xa(ev.touches[0], ev.touches[1]);
+        if (!d0) return;
+        var mx = (ev.touches[0].clientX + ev.touches[1].clientX) / 2;
+        var my = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
+        if (lbScale > 1) { lbPan.x += mx - mx0; lbPan.y += my - my0; }
+        mx0 = mx; my0 = my;
+        zoomTo(s0 * (d / d0), { clientX: mx, clientY: my });
+        if (lbScale > 1) applyPan();
+        return;
+      }
+      if (chum || ev.touches.length !== 1) return;
       var t = ev.touches[0], dx = t.clientX - sx, dy = t.clientY - sy;
       if (Math.abs(dx) > 8 || Math.abs(dy) > 8) moved = true;
-      if (lbZoom) { lbPan.x = px + dx; lbPan.y = py + dy; applyPan(); }
+      if (lbScale > 1) { lbPan.x = px + dx; lbPan.y = py + dy; applyPan(); }
     }, { passive: true });
     document.addEventListener('touchend', function (ev) {
       if (!inStage(ev)) return;
+      if (chum) {
+        if (ev.touches.length === 0) { chum = false; moved = false; lastTap = 0; }
+        return;
+      }
       var t = ev.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
-      if (!lbZoom && moved && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
+      if (lbScale <= 1 && moved && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
         stepPic(dx < 0 ? 1 : -1);
         return;
       }
@@ -2207,9 +2324,37 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }, { passive: true });
     document.addEventListener('touchcancel', function (ev) {
       if (!inStage(ev)) return;
-      moved = false;
-      if (lbZoom) { lbPan.x = px; lbPan.y = py; applyPan(); }
+      chum = false; moved = false;
+      if (lbScale > 1) { lbPan.x = px; lbPan.y = py; applyPan(); }
     }, { passive: true });
+
+    // con lăn / trackpad trên máy tính
+    document.addEventListener('wheel', function (ev) {
+      if (!inStage(ev)) return;
+      ev.preventDefault();
+      zoomTo(lbScale * (ev.deltaY < 0 ? 1.18 : 1 / 1.18), ev);
+    }, { passive: false });
+
+    // kéo bằng chuột khi đang phóng
+    var keo = false, kx = 0, ky = 0;
+    document.addEventListener('mousedown', function (ev) {
+      if (!inStage(ev) || lbScale <= 1 || ev.button !== 0) return;
+      keo = true; kx = ev.clientX; ky = ev.clientY; px = lbPan.x; py = lbPan.y;
+      ev.preventDefault();
+    });
+    document.addEventListener('mousemove', function (ev) {
+      if (!keo) return;
+      lbPan.x = px + (ev.clientX - kx); lbPan.y = py + (ev.clientY - ky);
+      applyPan();
+    });
+    document.addEventListener('mouseup', function () { keo = false; });
+
+    // chặn Safari tự phóng cả trang khi chụm trong khung ảnh
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (n) {
+      document.addEventListener(n, function (ev) {
+        if (inStage(ev)) ev.preventDefault();
+      }, { passive: false });
+    });
   })();
 
   /* ---------- tự nạp lại khi có bản mới ---------- */
