@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-234721">
+<html lang="vi" data-build="20261122-235726">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -137,6 +137,15 @@ img{max-width:100%}
 .lb-top .lb-head { flex: 1 1 auto; }
 .lb-bar .lb-del { color: var(--alert); }
 .lb-bar .lb-del.hoi { background: var(--alert); color: #FFFFFF; border-color: var(--alert); }
+.dau-chon { display: flex; flex-wrap: wrap; gap: 10px; }
+.dau-o {
+  font: inherit; font-size: 11.5px; color: var(--ink-2); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 5px; border-radius: 12px; background: var(--surface);
+  border: 2px solid var(--line);
+}
+.dau-o canvas { display: block; width: 150px; height: 52px; border-radius: 7px; }
+.dau-o.on { border-color: var(--accent); color: var(--ink); }
 .filepick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .filepick input[type="file"] {
   position: absolute; width: 1px; height: 1px; opacity: 0;
@@ -508,6 +517,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         <button class="btn btn-sm" type="button" data-act="zip-out">Tải hết về</button>
         <button class="btn btn-sm" type="button" data-act="zip-in">Nạp tệp vào</button>
       </div>
+      <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
+      <p class="sp" style="margin:0"><b>Dấu ngày trên ảnh lưu về.</b> Ảnh trong vườn không bị đụng tới —
+        chỉ tấm lưu ra máy mới có dấu. Thấy vướng cây thì chọn <b>Không in</b>,
+        hoặc <b>Viền dưới</b> để ngày nằm ngoài khung hình.</p>
+      <div id="dauKieu" class="dau-chon"></div>
+      <div id="dauCo" class="row-end" style="justify-content:flex-start;gap:8px"></div>
       <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
       <p class="sp" style="margin:0">Muốn dọn sạch làm lại? Nút này xóa hết cây, ghi chú, <b>ảnh và video</b>,
         chỉ chừa một cây mẫu. Xóa rồi là mất luôn — muốn giữ thì bấm <b>Chép ra</b> trước đã.</p>
@@ -964,11 +979,116 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }).catch(function () { return blob; });
   }
 
-  // Vẽ ngày chụp vào chính hình ảnh. iOS dựng lại tấm ảnh khi bỏ vào thư viện
-  // nên mọi thứ ghi kèm đều mất — riêng cái vẽ trong hình thì nó chép theo.
-  function veNgay(blob, ngay) {
-    if (!blob || !ngay) return Promise.resolve(blob);
+  /* ---------- dấu ngày trên ảnh lưu về ---------- */
+  var DAU_KIEU = 'vuon-dau-kieu', DAU_CO = 'vuon-dau-co';
+  var KIEUS = { mo: 'Ô mờ', giay: 'Nhãn giấy', phim: 'Phim cũ',
+                tran: 'Chữ trần', vien: 'Viền dưới', tat: 'Không in' };
+  var CO = { nho: 50, vua: 38, to: 29 };
+
+  function layKieu() {
+    try { var v = localStorage.getItem(DAU_KIEU); return KIEUS[v] ? v : 'mo'; }
+    catch (e) { return 'mo'; }
+  }
+  function layCo() {
+    try { var v = localStorage.getItem(DAU_CO); return CO[v] ? v : 'vua'; }
+    catch (e) { return 'vua'; }
+  }
+  function datDau(k, c) {
+    try {
+      if (k) localStorage.setItem(DAU_KIEU, k);
+      if (c) localStorage.setItem(DAU_CO, c);
+    } catch (e) {}
+  }
+
+  function duongBo(x, rx, ry, rw, rh, r) {
+    r = Math.min(r, rh / 2, rw / 2);
+    x.beginPath();
+    x.moveTo(rx + r, ry);
+    x.lineTo(rx + rw - r, ry);
+    x.quadraticCurveTo(rx + rw, ry, rx + rw, ry + r);
+    x.lineTo(rx + rw, ry + rh - r);
+    x.quadraticCurveTo(rx + rw, ry + rh, rx + rw - r, ry + rh);
+    x.lineTo(rx + r, ry + rh);
+    x.quadraticCurveTo(rx, ry + rh, rx, ry + rh - r);
+    x.lineTo(rx, ry + r);
+    x.quadraticCurveTo(rx, ry, rx + r, ry);
+    x.closePath();
+  }
+
+  function caoChu(w, h, co, ep) {
+    return ep || Math.max(10, Math.round(Math.min(w, h) / (CO[co] || CO.vua)));
+  }
+  // kiểu "viền dưới" cần nới thêm một dải trắng bên dưới ảnh
+  function daiDuoi(kieu, w, h, co, ep) {
+    return kieu === 'vien' ? Math.round(caoChu(w, h, co, ep) * 1.9) : 0;
+  }
+
+  function veDau(x, w, h, them, ngay, ten, kieu, co, ep) {
+    if (kieu === 'tat' || !ngay) return;
     var q = ngay.split('-'), chu = q[2] + '/' + q[1] + '/' + q[0];
+    var cao = caoChu(w, h, co, ep);
+    var le = ep ? Math.round(ep * 0.6) : Math.round(Math.min(w, h) / 22);
+    var dem = Math.round(cao * 0.62);
+    var sans = 'px -apple-system, BlinkMacSystemFont, system-ui, sans-serif';
+    x.textBaseline = 'middle';
+    x.textAlign = 'left';
+    function hetBong() { x.shadowColor = 'transparent'; x.shadowBlur = 0; x.shadowOffsetY = 0; }
+    hetBong();
+
+    if (kieu === 'vien') {
+      var nhan = (ten ? ten + '  ·  ' : '') + chu;
+      x.font = '600 ' + cao + sans;
+      if (x.measureText(nhan).width > w - le * 2) nhan = chu;
+      x.fillStyle = '#4A3B2A';
+      x.textAlign = 'center';
+      x.fillText(nhan, w / 2, h + them / 2);
+      x.textAlign = 'left';
+      return;
+    }
+    if (kieu === 'phim') {
+      x.font = '700 ' + cao + 'px ui-monospace, Menlo, Consolas, monospace';
+      x.textAlign = 'right';
+      x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = Math.round(cao * 0.5);
+      x.fillStyle = '#FFA23A';
+      x.fillText(q[2] + ' ' + q[1] + ' ' + q[0], w - le, h - le - cao * 0.5);
+      hetBong(); x.textAlign = 'left';
+      return;
+    }
+    if (kieu === 'tran') {
+      x.font = '600 ' + cao + sans;
+      x.shadowColor = 'rgba(0,0,0,.62)';
+      x.shadowBlur = Math.round(cao * 0.65);
+      x.shadowOffsetY = Math.round(cao * 0.08);
+      x.fillStyle = '#FFFFFF';
+      x.fillText(chu, le, h - le - cao * 0.5);
+      hetBong();
+      return;
+    }
+    x.font = '600 ' + cao + sans;
+    var rong = x.measureText(chu).width;
+    var bw = Math.round(rong + dem * 2), bh = Math.round(cao + dem * 1.3);
+    var bx = le, by = h - le - bh;
+    if (kieu === 'giay') {
+      x.shadowColor = 'rgba(0,0,0,.2)';
+      x.shadowBlur = Math.round(cao * 0.5);
+      x.shadowOffsetY = Math.round(cao * 0.1);
+      x.fillStyle = 'rgba(255,253,247,.95)';
+      duongBo(x, bx, by, bw, bh, Math.round(cao * 0.42)); x.fill();
+      hetBong();
+      x.fillStyle = '#4A3B2A';
+    } else {
+      x.fillStyle = 'rgba(0,0,0,.42)';
+      duongBo(x, bx, by, bw, bh, bh / 2); x.fill();
+      x.fillStyle = '#FFFFFF';
+    }
+    x.fillText(chu, bx + dem, by + bh / 2);
+  }
+
+  // In ngày lên chính hình ảnh. iOS dựng lại tấm ảnh khi bỏ vào thư viện nên
+  // mọi thứ ghi kèm bên ngoài đều mất — riêng cái nằm trong hình thì nó chép theo.
+  function veNgay(blob, ngay, ten) {
+    var kieu = layKieu(), co = layCo();
+    if (!blob || !ngay || kieu === 'tat') return Promise.resolve(blob);
     return new Promise(function (res) {
       var u = null, im = new Image(), xong = false, hen = null;
       function thoi(b) {
@@ -983,22 +1103,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         try {
           var w = im.naturalWidth, h = im.naturalHeight;
           if (!w || !h) return thoi(null);
+          var them = daiDuoi(kieu, w, h, co, 0);
           var c = document.createElement('canvas');
-          c.width = w; c.height = h;
+          c.width = w; c.height = h + them;
           var x = c.getContext('2d');
-          x.drawImage(im, 0, 0);
-          var cao = Math.max(13, Math.round(Math.min(w, h) / 26));
-          x.font = '600 ' + cao + 'px -apple-system, BlinkMacSystemFont, system-ui, sans-serif';
-          x.textBaseline = 'middle';
-          var rong = x.measureText(chu).width;
-          var dem = Math.round(cao * 0.62), le = Math.round(Math.min(w, h) / 24);
-          var bw = Math.round(rong + dem * 2), bh = Math.round(cao + dem * 1.3);
-          var bx = le, by = h - le - bh;
-          x.fillStyle = 'rgba(0,0,0,.42)';
-          if (x.roundRect) { x.beginPath(); x.roundRect(bx, by, bw, bh, bh / 2); x.fill(); }
-          else x.fillRect(bx, by, bw, bh);
-          x.fillStyle = '#FFFFFF';
-          x.fillText(chu, bx + dem, by + bh / 2);
+          if (them) { x.fillStyle = '#FFFFFF'; x.fillRect(0, 0, w, h + them); }
+          x.drawImage(im, 0, 0, w, h);
+          veDau(x, w, h, them, ngay, ten, kieu, co, 0);
           c.toBlob(function (b) {
             try { c.width = 1; c.height = 1; } catch (e) {}
             thoi(b);
@@ -1008,6 +1119,52 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       im.onerror = function () { thoi(null); };
       try { u = URL.createObjectURL(blob); im.src = u; } catch (e) { thoi(null); }
     });
+  }
+
+  function veXemThu(c, kieu) {
+    var w = c.width, tong = c.height, ep = 24;
+    var them = daiDuoi(kieu, w, tong, null, ep), h = tong - them;
+    var x = c.getContext('2d');
+    x.clearRect(0, 0, w, tong);
+    x.fillStyle = '#FFFFFF'; x.fillRect(0, 0, w, tong);
+    var g = x.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, '#A9CBAC'); g.addColorStop(1, '#2E4432');
+    x.fillStyle = g; x.fillRect(0, 0, w, h);
+    x.fillStyle = 'rgba(255,255,255,.5)';
+    x.beginPath(); x.arc(w * 0.7, h * 0.45, h * 0.3, 0, 7); x.fill();
+    if (kieu === 'tat') {
+      x.fillStyle = 'rgba(255,255,255,.92)';
+      x.font = '600 22px -apple-system, system-ui, sans-serif';
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText('ảnh trơn', w / 2, h / 2);
+      x.textAlign = 'left';
+      return;
+    }
+    veDau(x, w, h, them, '2024-03-15', 'Sen đá', kieu, 'vua', ep);
+  }
+
+  function renderDau() {
+    var box = $('#dauKieu');
+    if (!box) return;
+    var cur = layKieu();
+    box.innerHTML = Object.keys(KIEUS).map(function (k) {
+      return '<button type="button" class="dau-o' + (k === cur ? ' on' : '') +
+             '" data-act="dau-kieu" data-id="' + k + '" aria-pressed="' + (k === cur) + '">' +
+             '<canvas data-xem="' + k + '" width="300" height="104"></canvas>' +
+             '<span>' + KIEUS[k] + '</span></button>';
+    }).join('');
+    [].forEach.call(box.querySelectorAll('canvas[data-xem]'), function (c) {
+      veXemThu(c, c.getAttribute('data-xem'));
+    });
+    var cb = $('#dauCo');
+    if (!cb) return;
+    cb.hidden = cur === 'tat';
+    var cc = layCo(), ten = { nho: 'Nhỏ', vua: 'Vừa', to: 'To' };
+    cb.innerHTML = '<span class="sp" style="align-self:center;margin-right:2px">Cỡ chữ</span>' +
+      ['nho', 'vua', 'to'].map(function (k) {
+        return '<button type="button" class="btn btn-sm' + (k === cc ? ' btn-accent' : '') +
+               '" data-act="dau-co" data-id="' + k + '">' + ten[k] + '</button>';
+      }).join('');
   }
 
   function picDay(p, l) {
@@ -1536,7 +1693,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (lbDlUrl) { try { URL.revokeObjectURL(lbDlUrl); } catch (e) {} lbDlUrl = null; }
     var og = p.log || lbLog || {};
     var ngay = p.taken || og.date || '';
-    var chu = slug((byId(og.plantId) || {}).name) || 'cay';
+    var tenCay = (byId(og.plantId) || {}).name || '';
+    var chu = slug(tenCay) || 'cay';
     getPic(p.id).then(function (b) {
       if (!(b instanceof Blob)) { flash('Không tìm thấy tệp này trong máy.'); return; }
       var u = urlCache[p.id];
@@ -1547,7 +1705,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       dow.href = u;
       dow.download = ten;
       var lam = vid ? Promise.resolve(b)
-                    : veNgay(b, ngay).then(function (bb) { return stampJpeg(bb, ngay); });
+                    : veNgay(b, ngay, tenCay).then(function (bb) { return stampJpeg(bb, ngay); });
       return lam.catch(function () { return b; }).then(function (out) {
         if (lbSet[lbIdx] !== p) return;
         dow.textContent = vid ? 'Tải video về' : 'Tải ảnh về';
@@ -1813,7 +1971,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   /* ---------- render ---------- */
   function render() {
-    renderStats(); renderGrid(); renderReset(); renderImport();
+    renderStats(); renderGrid(); renderReset(); renderImport(); renderDau();
     hydratePics();
   }
 
@@ -2159,6 +2317,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       commit();
       return;
     }
+    if (act === 'dau-kieu') { datDau(id, null); renderDau(); return; }
+    if (act === 'dau-co') { datDau(null, id); renderDau(); return; }
     if (act === 'ask-import') { confirmImport = true; renderImport(); return; }
     if (act === 'cancel-import') { confirmImport = false; renderImport(); return; }
     if (act === 'do-import') {
