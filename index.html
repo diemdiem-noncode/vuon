@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-235726">
+<html lang="vi" data-build="20261123-000604">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1383,9 +1383,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   // mỗi tệp về đúng ngày của nó: ngày nào đã có ghi chú thì ảnh vào đó,
   // chưa có thì mở một dòng mới cho ngày đó
   function chiaTheoNgay(plantId, ps, ngayMacDinh) {
-    var map = {}, thuTu = [];
+    var map = {}, thuTu = [], chinh = 0;
     ps.forEach(function (pic) {
       var d = pic.taken || ngayMacDinh;
+      // iPhone dựng lại video (và vài loại ảnh) lúc chọn tệp, nên ngày trong tệp
+      // thành hôm nay. Gặp ca đó thì nghe theo ô "Ngày" người dùng đã chọn.
+      if (pic.src !== 'exif' && d === today() && ngayMacDinh && ngayMacDinh !== d) {
+        d = ngayMacDinh;
+        pic.taken = d;
+        pic.src = 'tay';
+        chinh++;
+      }
       if (!map[d]) { map[d] = []; thuTu.push(d); }
       map[d].push(pic);
     });
@@ -1400,7 +1408,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
                   at: new Date().toISOString(), pics: map[d] });
       moi++;
     });
-    return { ngay: thuTu.length, moi: moi };
+    return { ngay: thuTu.length, moi: moi, chinh: chinh };
   }
 
   /* ---------- bản sao mang đi: một tệp zip gồm sổ + ảnh ---------- */
@@ -1674,7 +1682,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var day = picDay(p, p.log || lbLog);
     $('#lbWhen').textContent = p.src === 'exif'
       ? 'Chụp ' + day
-      : (day ? '~ ' + day + (p.src === 'file' ? ' (ngày lưu tệp)' : ' (ngày ghi chú)') : '');
+      : (day ? '~ ' + day + (p.src === 'file' ? ' (ngày lưu tệp)'
+                            : (p.src === 'tay' ? ' (ngày bạn chọn)' : ' (ngày ghi chú)')) : '');
     $('#lbGap').textContent = gapText(p);
     $('#lbCount').textContent = lbSet.length > 1 ? (lbIdx + 1) + ' / ' + lbSet.length : '';
     $('#lbPrev').disabled = lbSet.length < 2;
@@ -2443,6 +2452,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         showUsage();
         var vids = ps.filter(function (x) { return x.kind === 'video'; }).length;
         var uoc = ps.filter(function (x) { return x.src === 'file'; }).length;
+        var tay = ps.filter(function (x) { return x.src === 'tay'; }).length;
         var trong = ps.filter(function (x) { return !x.taken; }).length;
         var msg;
         if (!ps.length) {
@@ -2450,6 +2460,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         } else {
           msg = 'Đã lưu ' + (ps.length - vids) + ' ảnh' + (vids ? ' và ' + vids + ' video' : '') +
                 ', xếp vào ' + g.ngay + ' ngày' + (g.moi ? ' (' + g.moi + ' ngày mới mở)' : '') + '.';
+          if (tay) msg += ' ' + tay + ' tệp bị máy dựng lại lúc chọn (hay gặp ở video iPhone) ' +
+                          'nên không còn ngày gốc — đã xếp vào ngày ' + shortDate(ngay) + ' bạn chọn ở ô Ngày.';
           if (uoc) msg += ' ' + uoc + ' tệp không có ngày chụp gốc nên lấy ngày lưu tệp (có dấu ~).';
           if (trong) msg += ' ' + trong + ' tệp không đọc được ngày nào nên để vào ' + shortDate(ngay) + '.';
           if (res.raw) msg += ' ' + res.raw + ' tệp máy không nén được nên giữ nguyên bản gốc (tốn chỗ hơn).';
@@ -2482,6 +2494,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       savePics(files, function (xong, tong) {
         flash('Đang xử lý ' + xong + '/' + tong + ' tệp, chờ xíu…', true);
       }).then(function (res) {
+        res.pics.forEach(function (pic) {
+          if (pic.src !== 'exif' && (!pic.taken || pic.taken === today()) &&
+              target.date && target.date !== today()) {
+            pic.taken = target.date; pic.src = 'tay';
+          }
+        });
         target.pics = (target.pics || []).concat(res.pics);
         commit();
         showUsage();
