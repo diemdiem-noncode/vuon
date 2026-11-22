@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-192831">
+<html lang="vi" data-build="20261122-194606">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -498,6 +498,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       <div class="row-end">
         <button class="btn btn-sm" type="button" data-act="copy">Chép ra</button>
         <button class="btn btn-sm btn-danger" type="button" data-act="restore">Dán vào (thay hết)</button>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
+      <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
+      <p class="sp" style="margin:0">Mang cả vườn <b>kèm ảnh và video</b> sang máy khác:
+        bấm <b>Tải hết về</b> ở máy này, gửi tệp qua máy kia (AirDrop, mail…), rồi bấm
+        <b>Nạp tệp vào</b> ở đó. Nạp là <b>gộp thêm</b>, không xóa thứ đang có.</p>
+      <input type="file" id="zipIn" accept=".zip,application/zip"
+             style="position:absolute;width:1px;height:1px;opacity:0;clip:rect(0 0 0 0)">
+      <div class="row-end">
+        <button class="btn btn-sm" type="button" data-act="zip-out">Tải hết về</button>
+        <button class="btn btn-sm" type="button" data-act="zip-in">Nạp tệp vào</button>
       </div>
       <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
       <p class="sp" style="margin:0">Muốn dọn sạch làm lại? Nút này xóa hết cây, ghi chú, <b>ảnh và video</b>,
@@ -1047,6 +1058,217 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       moi++;
     });
     return { ngay: thuTu.length, moi: moi };
+  }
+
+  /* ---------- bản sao mang đi: một tệp zip gồm sổ + ảnh ---------- */
+  var crcTab = null;
+  function crcTable() {
+    if (crcTab) return crcTab;
+    crcTab = new Int32Array(256);
+    for (var i = 0; i < 256; i++) {
+      var c = i;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      crcTab[i] = c;
+    }
+    return crcTab;
+  }
+
+  // đọc từng khúc 1 MB để máy yếu cũng kham được tệp lớn
+  function crcOfBlob(blob) {
+    var t = crcTable(), c = -1, pos = 0, CH = 1048576;
+    function step() {
+      if (pos >= blob.size) return Promise.resolve((c ^ -1) >>> 0);
+      return blob.slice(pos, pos + CH).arrayBuffer().then(function (b) {
+        var u = new Uint8Array(b);
+        for (var i = 0; i < u.length; i++) c = (c >>> 8) ^ t[(c ^ u[i]) & 255];
+        pos += CH;
+        return step();
+      });
+    }
+    return step();
+  }
+
+  // gói, không nén (ảnh với video nén rồi, nén nữa cũng không nhỏ thêm)
+  function zipWrite(items, onStep) {
+    var parts = [], central = [], off = 0, enc = new TextEncoder();
+    var chain = Promise.resolve(), done = 0;
+    items.forEach(function (it) {
+      chain = chain.then(function () {
+        return crcOfBlob(it.blob).then(function (crc) {
+          var n = enc.encode(it.name), sz = it.blob.size;
+          var h = new DataView(new ArrayBuffer(30));
+          h.setUint32(0, 0x04034b50, true);
+          h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+          h.setUint16(10, 0, true); h.setUint16(12, 0x21, true);
+          h.setUint32(14, crc, true); h.setUint32(18, sz, true); h.setUint32(22, sz, true);
+          h.setUint16(26, n.length, true); h.setUint16(28, 0, true);
+          parts.push(h.buffer, n, it.blob);
+
+          var c = new DataView(new ArrayBuffer(46));
+          c.setUint32(0, 0x02014b50, true);
+          c.setUint16(4, 20, true); c.setUint16(6, 20, true);
+          c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+          c.setUint16(12, 0, true); c.setUint16(14, 0x21, true);
+          c.setUint32(16, crc, true); c.setUint32(20, sz, true); c.setUint32(24, sz, true);
+          c.setUint16(28, n.length, true);
+          c.setUint32(42, off, true);
+          central.push(c.buffer, n);
+          off += 30 + n.length + sz;
+          done++;
+          if (onStep) onStep(done, items.length);
+        });
+      });
+    });
+    return chain.then(function () {
+      var cdSize = 0;
+      central.forEach(function (b) { cdSize += (b.byteLength || b.length); });
+      var e = new DataView(new ArrayBuffer(22));
+      e.setUint32(0, 0x06054b50, true);
+      e.setUint16(8, items.length, true); e.setUint16(10, items.length, true);
+      e.setUint32(12, cdSize, true); e.setUint32(16, off, true);
+      return new Blob(parts.concat(central, [e.buffer]), { type: 'application/zip' });
+    });
+  }
+
+  function zipRead(file) {
+    var tail = Math.min(file.size, 66000);
+    return file.slice(file.size - tail).arrayBuffer().then(function (buf) {
+      var u8 = new Uint8Array(buf), p = -1;
+      for (var i = u8.length - 22; i >= 0; i--) {
+        if (u8[i] === 0x50 && u8[i+1] === 0x4b && u8[i+2] === 0x05 && u8[i+3] === 0x06) { p = i; break; }
+      }
+      if (p < 0) throw new Error('đây không phải tệp bản sao');
+      var dv = new DataView(buf);
+      var n = dv.getUint16(p + 10, true);
+      var cdSize = dv.getUint32(p + 12, true), cdOff = dv.getUint32(p + 16, true);
+      return file.slice(cdOff, cdOff + cdSize).arrayBuffer().then(function (cb) {
+        var cd = new DataView(cb), cu = new Uint8Array(cb), q = 0, out = [], dec = new TextDecoder();
+        for (var k = 0; k < n && q + 46 <= cu.length; k++) {
+          if (cd.getUint32(q, true) !== 0x02014b50) break;
+          var nl = cd.getUint16(q + 28, true), el = cd.getUint16(q + 30, true), cl = cd.getUint16(q + 32, true);
+          out.push({ name: dec.decode(cu.subarray(q + 46, q + 46 + nl)),
+                     method: cd.getUint16(q + 10, true),
+                     csize: cd.getUint32(q + 20, true),
+                     local: cd.getUint32(q + 42, true) });
+          q += 46 + nl + el + cl;
+        }
+        return { file: file, items: out };
+      });
+    });
+  }
+
+  function zipGet(z, it) {
+    return z.file.slice(it.local, it.local + 30).arrayBuffer().then(function (hb) {
+      var h = new DataView(hb);
+      var start = it.local + 30 + h.getUint16(26, true) + h.getUint16(28, true);
+      var blob = z.file.slice(start, start + it.csize);
+      if (it.method === 0) return blob;
+      if (it.method === 8 && window.DecompressionStream) {
+        return new Response(blob.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob();
+      }
+      throw new Error('tệp nén kiểu lạ, không mở được');
+    });
+  }
+
+  function taiHetVe() {
+    var items = [], kho = {}, i = 0;
+    var chain = Promise.resolve();
+    logs.forEach(function (l) {
+      picList(l).forEach(function (q) {
+        var ids = [{ id: q.id, ext: q.kind === 'video' ? (q.ext || 'mp4') : 'jpg' }];
+        if (q.kind === 'video') ids.push({ id: q.id + ':p', ext: 'jpg' });
+        ids.forEach(function (x) {
+          chain = chain.then(function () {
+            return getPic(x.id).then(function (b) {
+              if (!(b instanceof Blob)) return;
+              i++;
+              var ten = 'anh/' + ('000' + i).slice(-4) + '.' + x.ext;
+              kho[ten] = x.id;
+              items.push({ name: ten, blob: b });
+            });
+          });
+        });
+      });
+    });
+    return chain.then(function () {
+      var so = { version: 1, taoLuc: new Date().toISOString(),
+                 plants: plants, logs: logs, anh: kho };
+      items.unshift({ name: 'data.json',
+                      blob: new Blob([JSON.stringify(so)], { type: 'application/json' }) });
+      flash('Đang gói ' + items.length + ' thứ, chờ xíu…', true);
+      return zipWrite(items, function (xong, tong) {
+        if (xong % 10 === 0 || xong === tong) flash('Đang gói ' + xong + '/' + tong + '…', true);
+      }).then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'vuon-' + today() + '.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+        flash('Xong — tệp nặng ' + (blob.size / 1048576).toFixed(1) + ' MB, gồm ' +
+              plants.length + ' cây, ' + logs.length + ' ghi chú và ' + (items.length - 1) +
+              ' ảnh/video. Gửi tệp này qua máy kia rồi bấm “Nạp tệp vào”.', true);
+      });
+    }).catch(function (e) {
+      flash('Gói không xong: ' + (e && e.message ? e.message : e), true);
+    });
+  }
+
+  function napTepVao(file) {
+    flash('Đang mở tệp…', true);
+    return zipRead(file).then(function (z) {
+      var man = null;
+      for (var i = 0; i < z.items.length; i++) if (z.items[i].name === 'data.json') man = z.items[i];
+      if (!man) throw new Error('trong tệp không có sổ, chắc không phải bản sao của trang này');
+      return zipGet(z, man).then(function (b) { return b.text(); }).then(function (t) {
+        var o = JSON.parse(t);
+        if (!o || !Array.isArray(o.plants) || !Array.isArray(o.logs)) throw new Error('sổ trong tệp hỏng');
+
+        var cayCu = {}, moiCay = 0, suaCay = 0;
+        plants.forEach(function (p) { cayCu[p.id] = p; });
+        o.plants.forEach(function (p) {
+          if (!p || !p.id) return;
+          if (cayCu[p.id]) { suaCay++; Object.assign(cayCu[p.id], p); }
+          else { plants.push(p); cayCu[p.id] = p; moiCay++; }
+        });
+
+        var ghiCu = {}, moiGhi = 0, suaGhi = 0;
+        logs.forEach(function (l) { ghiCu[l.id] = l; });
+        o.logs.forEach(function (l) {
+          if (!l || !l.id) return;
+          if (ghiCu[l.id]) { suaGhi++; Object.assign(ghiCu[l.id], l); }
+          else { logs.push(l); ghiCu[l.id] = l; moiGhi++; }
+        });
+        sortLogs();
+
+        var kho = o.anh || {}, canh = [], hong = 0, vao = 0;
+        z.items.forEach(function (it) { if (kho[it.name]) canh.push(it); });
+        var chain = Promise.resolve();
+        canh.forEach(function (it, k) {
+          chain = chain.then(function () {
+            return zipGet(z, it).then(function (b) {
+              return putPic(kho[it.name], b).then(function (ok) {
+                if (ok) vao++; else hong++;
+                if (k % 10 === 0) flash('Đang nạp ảnh ' + (k + 1) + '/' + canh.length + '…', true);
+              });
+            }).catch(function () { hong++; });
+          });
+        });
+        return chain.then(function () {
+          commit();
+          showUsage();
+          var msg = 'Đã nạp: ' + moiCay + ' cây mới' + (suaCay ? ', ' + suaCay + ' cây cập nhật' : '') +
+                    ', ' + moiGhi + ' ghi chú mới' + (suaGhi ? ', ' + suaGhi + ' ghi chú cập nhật' : '') +
+                    ', ' + vao + ' ảnh/video.';
+          if (hong) msg += ' ' + hong + ' tệp ảnh không lưu được (hết chỗ trống?).';
+          flash(msg, true);
+        });
+      });
+    }).catch(function (e) {
+      flash('Nạp không được: ' + (e && e.message ? e.message : e), true);
+    });
   }
 
   function hydratePics() {
@@ -1643,6 +1865,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       flash('Dọn xong. Còn một cây mẫu cho bạn sửa.');
       return;
     }
+    if (act === 'zip-out') { taiHetVe(); return; }
+    if (act === 'zip-in') {
+      var zi = $('#zipIn');
+      if (zi) { zi.value = ''; zi.click(); }
+      return;
+    }
     if (act === 'toggle-backup') {
       var box = $('#backupBox');
       box.hidden = !box.hidden;
@@ -1755,6 +1983,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   document.addEventListener('change', function (ev) {
     var el = ev.target;
     if (el.id === 'filter') { filter = el.value; renderFeed(); return; }
+    if (el.id === 'zipIn') {
+      var zf = el.files && el.files[0];
+      el.value = '';
+      if (zf) napTepVao(zf);
+      return;
+    }
     if (el.id === 'morePic') {
       var files = el.files ? [].slice.call(el.files) : [];
       var target = logs.filter(function (x) { return x.id === pendingLog; })[0];
