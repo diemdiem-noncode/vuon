@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-231738">
+<html lang="vi" data-build="20261122-232432">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1915,8 +1915,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (!lbFile) return;                      // máy không chia sẻ được thì tải về như cũ
       ev.preventDefault();
       var tep = lbFile;
+      var cur = lbSet[lbIdx];
+      var ngayChup = cur ? picDay(cur, cur.log || lbLog) : '';
       try {
-        navigator.share({ files: [tep] }).catch(function (e) {
+        navigator.share({ files: [tep] }).then(function () {
+          // iOS dựng lại ảnh khi bỏ vào thư viện nên ngày chụp bị thay bằng giờ hiện tại.
+          // Không chặn được, chỉ nhắc chị sửa lại cho nhanh.
+          if (ngayChup) {
+            flash('Đã gửi đi. Nếu chọn "Lưu ảnh", máy sẽ ghi ngày hôm nay — mở tấm đó trong ' +
+                  'app Ảnh, bấm ⓘ rồi "Điều chỉnh", nhập ' + ngayChup + '.', false, 20000);
+          }
+        }).catch(function (e) {
           if (e && (e.name === 'AbortError' || e.code === 20)) return;
           taiThang(dl);
         });
