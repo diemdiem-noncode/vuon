@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-134043">
+<html lang="vi" data-build="20261122-135026">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -534,6 +534,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       <p class="sp" style="margin:0">Nạp sẵn danh sách 38 cây đã chép từ sổ cũ của bạn.
         Cũng là <b>thay hết</b> giống nút trên.</p>
       <div class="row-end" id="importRow"></div>
+      <p class="sp" id="buildTag" style="margin:0;opacity:.65;text-align:right"></p>
     </div>
   </section>
 </div>
@@ -1783,6 +1784,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       })
       .catch(function () {});
   }
+
+  (function showBuild() {
+    var el = $('#buildTag');
+    if (!el) return;
+    var m = BUILD.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})/);
+    el.textContent = m ? 'Bản ' + m[3] + '/' + m[2] + ' ' + m[4] + ':' + m[5]
+                       : (BUILD ? 'Bản ' + BUILD : 'Bản cũ');
+  })();
 
   setTimeout(checkUpdate, 1200);
   document.addEventListener('visibilitychange', function () {
