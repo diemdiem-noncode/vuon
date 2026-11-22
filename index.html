@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-191407">
+<html lang="vi" data-build="20261122-192831">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -400,6 +400,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   padding: 3px 9px; border-radius: 20px;
   border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
 }
+.addpic.ok { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.note-edit {
+  width: 100%; min-height: 66px; resize: vertical; font: inherit; font-size: 14px;
+  padding: 8px 10px; border-radius: 10px; box-sizing: border-box;
+  border: 1px solid var(--accent); background: var(--surface); color: var(--ink);
+}
 .who { font-weight: 600; color: var(--accent); }
 .feed { list-style: none; margin: 0; padding: 0; }
 .del { flex: none; }
@@ -557,7 +563,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   var plants = [], logs = [], openId = null, filter = 'all', confirmDel = null, fresh = false;
   var editName = null;
-  var confirmReset = false, confirmImport = false, pendingLog = null, dangLuu = false;
+  var confirmReset = false, confirmImport = false, pendingLog = null, dangLuu = false, editLog = null;
 
   function today() {
     var d = new Date();
@@ -1057,10 +1063,26 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   var lbSet = [], lbIdx = 0, lbLog = null, lbZoom = 0, lbPan = { x: 0, y: 0 };
 
+  // gom hết ảnh của một cây, xếp từ cũ tới mới, kèm ghi chú của ngày đó
+  function plantPics(plantId) {
+    var out = [];
+    logs.forEach(function (l) {
+      if (l.plantId !== plantId) return;
+      picList(l).forEach(function (q) {
+        q.log = l;
+        q.day = q.taken || l.date || '';
+        out.push(q);
+      });
+    });
+    out.sort(function (x, y) { return x.day < y.day ? -1 : (x.day > y.day ? 1 : 0); });
+    return out;
+  }
+
   function openPic(picId, logId) {
     var l = logs.filter(function (x) { return x.id === logId; })[0];
     lbLog = l || null;
-    lbSet = l ? picList(l) : [{ id: picId, taken: null, src: null }];
+    lbSet = l ? plantPics(l.plantId) : [];
+    if (!lbSet.length) lbSet = [{ id: picId, taken: null, src: null, log: l || null }];
     lbIdx = 0;
     for (var i = 0; i < lbSet.length; i++) if (lbSet[i].id === picId) lbIdx = i;
     $('#lightbox').hidden = false;
@@ -1079,7 +1101,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var p = lbSet[lbIdx];
     if (!p) return;
     resetZoom();
-    var day = picDay(p, lbLog);
+    var day = picDay(p, p.log || lbLog);
     $('#lbWhen').textContent = p.src === 'exif'
       ? 'Chụp ' + day
       : (day ? '~ ' + day + (p.src === 'file' ? ' (ngày lưu tệp)' : ' (ngày ghi chú)') : '');
@@ -1113,8 +1135,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   function gapText(p) {
     var first = lbSet[0];
-    if (lbIdx === 0 || !first || !first.taken || !p.taken) return '';
-    var n = dayDiff(first.taken, p.taken);
+    var d0 = first && (first.day || first.taken), dp = p && (p.day || p.taken);
+    if (lbIdx === 0 || !d0 || !dp) return '';
+    var n = dayDiff(d0, dp);
     if (n <= 0) return '';
     if (n < 31) return n + ' ngày sau ảnh đầu';
     var m = Math.floor(n / 30.44), d = n - Math.round(m * 30.44);
@@ -1238,6 +1261,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!quiet) flash('');
   }
   function commit() { save(); render(); }
+
+  function doneNote(id) {
+    var l = logs.filter(function (x) { return x.id === id; })[0];
+    var t = document.getElementById('nl-' + id);
+    if (l && t) l.note = t.value.trim();
+    editLog = null;
+    commit();
+  }
 
   function doneName(id) {
     var p = byId(id), inp = document.getElementById('n-' + id);
@@ -1450,7 +1481,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var p = byId(l.plantId);
     return '<li><span class="when">' + shortDate(l.date) + '</span>' +
       '<div class="entry">' +
-      (l.note ? '<p>' + esc(l.note) + '</p>' : '') +
+      (editLog === l.id
+        ? '<textarea class="note-edit" id="nl-' + l.id + '" data-act="set-log-note" data-id="' + l.id +
+          '" placeholder="Hôm nay cây thế nào…">' + esc(l.note || '') + '</textarea>'
+        : (l.note ? '<p>' + esc(l.note) + '</p>' : '')) +
       (function () {
         var ps = picList(l);
         if (!ps.length) return '';
@@ -1473,6 +1507,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       })() +
       '<div class="meta">' +
       (withName && p ? '<span class="who">' + esc(p.name) + '</span>' : '') +
+      '<button class="addpic' + (editLog === l.id ? ' ok' : '') + '" type="button" data-act="' +
+        (editLog === l.id ? 'done-note' : 'edit-note') + '" data-id="' + l.id + '">' +
+        (editLog === l.id ? '✓ Xong' : (l.note ? '✎ Sửa chữ' : '+ Ghi chú')) + '</button>' +
       '<button class="addpic" type="button" data-act="add-pic" data-id="' + l.id + '">+ Ảnh</button>' +
       '</div></div>' +
       '<button class="btn btn-sm del" type="button" data-act="del-log" data-id="' + l.id + '" aria-label="Xóa ghi chú">×</button></li>';
@@ -1525,7 +1562,20 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (!f.hidden) $('#np-name').focus();
       return;
     }
-    if (act === 'open') { openId = openId === id ? null : id; confirmDel = null; editName = null; renderGrid(); return; }
+    if (act === 'open') {
+      openId = openId === id ? null : id;
+      confirmDel = null; editName = null; editLog = null;
+      renderGrid(); return;
+    }
+    if (act === 'edit-note') {
+      editLog = id; render();
+      setTimeout(function () {
+        var t = document.getElementById('nl-' + id);
+        if (t) { t.focus(); try { t.setSelectionRange(t.value.length, t.value.length); } catch (e) {} }
+      }, 0);
+      return;
+    }
+    if (act === 'done-note') { doneNote(id); return; }
     if (act === 'edit-name') {
       editName = id; renderGrid();
       setTimeout(function () {
@@ -1736,6 +1786,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }
     var act = el.getAttribute && el.getAttribute('data-act');
     if (!act) return;
+    if (act === 'set-log-note') {
+      var lg = logs.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
+      if (lg) { lg.note = el.value.trim(); save(); }
+      return;
+    }
     var p = byId(el.getAttribute('data-id'));
     if (!p) return;
     if (act === 'set-name') {
