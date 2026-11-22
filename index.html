@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-190446">
+<html lang="vi" data-build="20261122-191407">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -557,7 +557,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   var plants = [], logs = [], openId = null, filter = 'all', confirmDel = null, fresh = false;
   var editName = null;
-  var confirmReset = false, confirmImport = false, pendingLog = null;
+  var confirmReset = false, confirmImport = false, pendingLog = null, dangLuu = false;
 
   function today() {
     var d = new Date();
@@ -850,25 +850,61 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       .then(function () { return idbDo('readwrite', function (st) { return st.delete(id + ':p'); }); });
   }
 
-  function shrink(file) {
+  function canvasJpeg(src, w, h) {
     return new Promise(function (res) {
-      var url;
+      if (!w || !h) return res(null);
+      var MAX = 1400, sc = Math.min(1, MAX / Math.max(w, h));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w * sc));
+      c.height = Math.max(1, Math.round(h * sc));
+      function xong(b) {
+        // iPhone giữ bộ nhớ canvas rất dai — thu nhỏ lại để trả về ngay
+        try { c.width = 1; c.height = 1; } catch (e) {}
+        res(b || null);
+      }
+      try {
+        c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+        c.toBlob(function (b) { xong(b); }, 'image/jpeg', 0.78);
+      } catch (e) { xong(null); }
+    });
+  }
+
+  // cách 1: thẻ <img> — hợp với mọi máy
+  function shrinkImg(file) {
+    return new Promise(function (res) {
+      var url, done = false;
+      function finish(b) {
+        if (done) return;
+        done = true;
+        try { URL.revokeObjectURL(url); } catch (e) {}
+        res(b);
+      }
       try { url = URL.createObjectURL(file); } catch (e) { return res(null); }
       var im = new Image();
-      im.onload = function () {
-        var MAX = 1400, w = im.naturalWidth, h = im.naturalHeight;
-        var sc = Math.min(1, MAX / Math.max(w, h));
-        var c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(w * sc));
-        c.height = Math.max(1, Math.round(h * sc));
-        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url);
-        try { c.toBlob(function (b) { res(b || null); }, 'image/jpeg', 0.78); }
-        catch (e) { res(null); }
-      };
-      im.onerror = function () { URL.revokeObjectURL(url); res(null); };
+      im.onload = function () { canvasJpeg(im, im.naturalWidth, im.naturalHeight).then(finish); };
+      im.onerror = function () { finish(null); };
+      setTimeout(function () { finish(null); }, 20000);   // kẹt thì bỏ, đừng treo cả xấp
       im.src = url;
     });
+  }
+
+  // cách 2: giải mã thẳng tệp — cứu được ảnh HEIC của iPhone khi cách 1 chịu thua
+  function shrinkBitmap(file) {
+    if (!window.createImageBitmap) return Promise.resolve(null);
+    try {
+      return createImageBitmap(file).then(function (bm) {
+        return canvasJpeg(bm, bm.width, bm.height).then(function (b) {
+          try { bm.close(); } catch (e) {}
+          return b;
+        });
+      }).catch(function () { return null; });
+    } catch (e) { return Promise.resolve(null); }
+  }
+
+  function shrink(file) {
+    return shrinkImg(file)
+      .then(function (b) { return b || shrinkBitmap(file); })
+      .catch(function () { return null; });
   }
 
   var MAX_VIDEO = 80 * 1024 * 1024;
@@ -943,10 +979,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     });
   }
 
-  var MAX_BATCH = 60;
+  var MAX_BATCH = 60, MAX_RAW = 12 * 1024 * 1024;
 
   function savePics(files, onStep) {
-    var out = [], skipped = [], chain = Promise.resolve();
+    var out = [], skipped = [], raw = 0, chain = Promise.resolve();
     var use = files.slice(0, MAX_BATCH), all = use.length, done = 0;
     if (files.length > MAX_BATCH) {
       skipped.push((files.length - MAX_BATCH) + ' tệp cuối chưa lưu — một lượt chỉ nhận ' +
@@ -959,20 +995,29 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         }
         return takenOf(f).then(function (meta) {
           return shrink(f).then(function (b) {
-            if (!b) { skipped.push('"' + f.name + '" không mở được'); return; }
+            var blob = b, nguyen = false;
+            if (!blob) {
+              // máy không nén được (HEIC, hết bộ nhớ…) thì cất nguyên tệp,
+              // thà nặng chứ đừng mất ảnh
+              if (f.size && f.size <= MAX_RAW) { blob = f; nguyen = true; }
+              else { skipped.push('"' + f.name + '" không mở được'); return; }
+            }
             var id = newId('a');
-            return putPic(id, b).then(function (ok) {
-              if (ok) out.push({ id: id, taken: meta.taken, src: meta.src, kind: 'photo' });
-              else skipped.push('"' + f.name + '" không lưu được (hết chỗ trống?)');
+            return putPic(id, blob).then(function (ok) {
+              if (!ok) { skipped.push('"' + f.name + '" không lưu được (hết chỗ trống?)'); return; }
+              out.push({ id: id, taken: meta.taken, src: meta.src, kind: 'photo' });
+              if (nguyen) raw++;
             });
           });
         });
       }).then(function () {
         done++;
         if (onStep) onStep(done, all);
+        // nhường máy một nhịp: iPhone cần khoảng thở để dọn bộ nhớ ảnh
+        return new Promise(function (r) { setTimeout(r, 30); });
       });
     });
-    return chain.then(function () { return { pics: out, skipped: skipped }; });
+    return chain.then(function () { return { pics: out, skipped: skipped, raw: raw }; });
   }
 
   // mỗi tệp về đúng ngày của nó: ngày nào đã có ghi chú thì ảnh vào đó,
@@ -1145,13 +1190,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
 
   var flashTimer = null;
-  function flash(msg, keep) {
+  function flash(msg, keep, ms) {
     var el = $('#status');
     clearTimeout(flashTimer);
     if (!msg) { el.hidden = true; return; }
     el.textContent = msg;
     el.hidden = false;
-    if (!keep) flashTimer = setTimeout(function () { el.hidden = true; }, 5000);
+    if (!keep) flashTimer = setTimeout(function () { el.hidden = true; }, ms || 5000);
   }
 
   /* ---------- storage ---------- */
@@ -1605,24 +1650,29 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         flash('Viết gì đó hoặc chọn ảnh đã nhé.');
         return;
       }
+      if (dangLuu) { flash('Đang lưu xấp ảnh trước, chờ xong đã nhé.'); return; }
       var pid = f.getAttribute('data-id');
       var ngay = f.elements.date.value || today();
       f.elements.note.value = '';
-      if (pin) pin.value = '';
-      var tag = pin && pin.parentNode && pin.parentNode.querySelector('.filename');
-      if (tag) tag.textContent = 'chưa chọn gì';
 
       if (note) {
         logs.push({ id: newId('l'), plantId: pid, date: ngay, note: note,
                     at: new Date().toISOString(), pics: [] });
         sortLogs();
-        commit();
       }
-      if (!files.length) { flash('Đã ghi.'); return; }
+      if (!files.length) { commit(); flash('Đã ghi.'); return; }
+      // KHÔNG xóa pin.value và KHÔNG vẽ lại màn lúc này: iPhone có thể
+      // thu hồi tệp đã chọn ngay khi ô chọn bị đụng tới
+      if (note) save();
+      var tag = pin && pin.parentNode && pin.parentNode.querySelector('.filename');
+      if (tag) tag.textContent = 'đang lưu…';
+      dangLuu = true;
       flash('Đang xử lý ' + files.length + ' tệp, chờ xíu…', true);
       savePics(files, function (xong, tong) {
         flash('Đang xử lý ' + xong + '/' + tong + ' tệp, chờ xíu…', true);
       }).then(function (res) {
+        dangLuu = false;
+        try { if (pin) pin.value = ''; } catch (e) {}
         var ps = res.pics;
         var g = chiaTheoNgay(pid, ps, ngay);
         sortLogs();
@@ -1639,9 +1689,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
                 ', xếp vào ' + g.ngay + ' ngày' + (g.moi ? ' (' + g.moi + ' ngày mới mở)' : '') + '.';
           if (uoc) msg += ' ' + uoc + ' tệp không có ngày chụp gốc nên lấy ngày lưu tệp (có dấu ~).';
           if (trong) msg += ' ' + trong + ' tệp không đọc được ngày nào nên để vào ' + shortDate(ngay) + '.';
+          if (res.raw) msg += ' ' + res.raw + ' tệp máy không nén được nên giữ nguyên bản gốc (tốn chỗ hơn).';
         }
         if (res.skipped.length) msg += ' Bỏ qua: ' + res.skipped.join('; ') + '.';
-        flash(msg, res.skipped.length > 0);
+        flash(msg, res.skipped.length > 0, 20000);
+      }).catch(function (e) {
+        dangLuu = false;
+        commit();
+        flash('Lưu ảnh hỏng giữa chừng: ' + (e && e.message ? e.message : e) +
+              '. Chụp màn hình dòng này gửi tôi nhé.', true);
       });
     }
   });
