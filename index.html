@@ -523,6 +523,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       <p class="sp" style="margin:0">Muốn dọn sạch làm lại? Nút này xóa hết cây, ghi chú, <b>ảnh và video</b>,
         chỉ chừa một cây mẫu. Xóa rồi là mất luôn — muốn giữ thì bấm <b>Chép ra</b> trước đã.</p>
       <div class="row-end" id="resetRow"></div>
+      <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
+      <p class="sp" style="margin:0">Nạp sẵn danh sách 38 cây đã chép từ sổ cũ của bạn.
+        Cũng là <b>thay hết</b> giống nút trên.</p>
+      <div class="row-end" id="importRow"></div>
     </div>
   </section>
 </div>
@@ -577,7 +581,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   };
 
   var plants = [], logs = [], openId = null, filter = 'all', confirmDel = null, fresh = false;
-  var confirmReset = false;
+  var confirmReset = false, confirmImport = false;
 
   function today() {
     var d = new Date();
@@ -1183,7 +1187,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   /* ---------- render ---------- */
   function render() {
-    renderStats(); renderToday(); renderGrid(); renderFilter(); renderFeed(); renderReset();
+    renderStats(); renderToday(); renderGrid(); renderFilter(); renderFeed(); renderReset(); renderImport();
     hydratePics();
   }
 
@@ -1232,6 +1236,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (n !== null && n > 0 && (best === null || n < best)) best = n;
     });
     return best === null ? 'chưa rõ' : (best === 1 ? '1 ngày' : best + ' ngày');
+  }
+
+  function renderImport() {
+    var el = $('#importRow');
+    if (!el) return;
+    el.innerHTML = confirmImport
+      ? '<span class="sp" style="align-self:center">Thay hết bằng 38 cây đó nhé?</span>' +
+        '<button class="btn btn-sm" type="button" data-act="cancel-import">Thôi</button>' +
+        '<button class="btn btn-sm btn-danger" type="button" data-act="do-import">Nạp vào</button>'
+      : '<button class="btn btn-sm" type="button" data-act="ask-import">Nạp 38 cây</button>';
   }
 
   function renderReset() {
@@ -1505,6 +1519,23 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (gone) picList(gone).forEach(function (q) { delPic(q.id); });
       logs = logs.filter(function (l) { return l.id !== id; });
       commit();
+      return;
+    }
+    if (act === 'ask-import') { confirmImport = true; renderImport(); return; }
+    if (act === 'cancel-import') { confirmImport = false; renderImport(); return; }
+    if (act === 'do-import') {
+      confirmImport = false; renderImport();
+      flash('Đang tải danh sách…', true);
+      fetch('data.json', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (o) {
+          if (!o || !Array.isArray(o.plants) || !Array.isArray(o.logs)) throw new Error('hỏng');
+          plants = o.plants; logs = o.logs;
+          openId = null; filter = 'all'; confirmDel = null;
+          commit();
+          flash('Xong — ' + plants.length + ' cây và ' + logs.length + ' ghi chú đã vào.');
+        })
+        .catch(function () { flash('Không tải được danh sách. Kiểm tra mạng rồi thử lại.'); });
       return;
     }
     if (act === 'ask-reset') { confirmReset = true; renderReset(); return; }
