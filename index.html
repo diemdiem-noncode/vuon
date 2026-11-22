@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-001908">
+<html lang="vi" data-build="20261123-002855">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -411,6 +411,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   min-width: 0;
 }
 .hist li:first-child, .feed li:first-child { border-top: none; }
+.when-btn {
+  font: inherit; color: inherit; cursor: pointer; padding: 0; text-align: left;
+  background: none; border: none; border-bottom: 1px dashed var(--line);
+}
+.when-edit { font: inherit; font-size: 11px; padding: 2px 4px; width: 100%; }
 .when {
   flex: none;
   width: 58px;
@@ -529,9 +534,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         <button class="btn btn-sm" type="button" data-act="zip-in">Nạp tệp vào</button>
       </div>
       <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
-      <p class="sp" style="margin:0"><b>Dấu ngày trên ảnh lưu về.</b> Ảnh trong vườn không bị đụng tới —
-        chỉ tấm lưu ra máy mới có dấu. Thấy vướng cây thì chọn <b>Không in</b>,
-        hoặc <b>Viền dưới</b> để ngày nằm ngoài khung hình.</p>
+      <p class="sp" style="margin:0"><b>Dấu ngày trông thế nào.</b> Mỗi lần bấm lưu ảnh về máy,
+        app đều hỏi có in ngày hay không — đây chỉ là chọn kiểu cho lúc chị trả lời <b>có</b>.
+        Sợ che mất cây thì chọn <b>Viền dưới</b>, ngày nằm ngoài khung hình.</p>
       <div id="dauKieu" class="dau-chon"></div>
       <div id="dauCo" class="row-end" style="justify-content:flex-start;gap:8px"></div>
       <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
@@ -566,6 +571,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     <button class="btn btn-sm" type="button" id="lbPrev" data-act="lb-prev" aria-label="Ảnh trước">‹</button>
     <span class="lb-count" id="lbCount"></span>
     <button class="btn btn-sm" type="button" id="lbNext" data-act="lb-next" aria-label="Ảnh sau">›</button>
+  </div>
+</div>
+<div class="xacnhan" id="hoiLuu" hidden>
+  <div class="xacnhan-hop" role="alertdialog" aria-labelledby="luuTieu">
+    <p class="xacnhan-tieu" id="luuTieu">Lưu ảnh về máy</p>
+    <p class="xacnhan-phu" id="luuPhu"></p>
+    <div class="row-end" style="flex-wrap:wrap">
+      <button class="btn btn-sm" type="button" data-act="luu-thoi">Thôi</button>
+      <button class="btn btn-sm" type="button" data-act="luu-khong">Ảnh trơn</button>
+      <button class="btn btn-sm btn-accent" type="button" data-act="luu-co" id="luuCo">In ngày</button>
+    </div>
   </div>
 </div>
 <div class="xacnhan" id="hoiXoa" hidden>
@@ -610,6 +626,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   var plants = [], logs = [], openId = null, confirmDel = null, fresh = false;
   var editName = null;
   var confirmReset = false, confirmImport = false, pendingLog = null, dangLuu = false, editLog = null;
+  var editDate = null;
 
   function today() {
     var d = new Date();
@@ -1003,7 +1020,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   /* ---------- dấu ngày trên ảnh lưu về ---------- */
   var DAU_KIEU = 'vuon-dau-kieu', DAU_CO = 'vuon-dau-co';
   var KIEUS = { mo: 'Ô mờ', giay: 'Nhãn giấy', phim: 'Phim cũ',
-                tran: 'Chữ trần', vien: 'Viền dưới', tat: 'Không in' };
+                tran: 'Chữ trần', vien: 'Viền dưới' };
   var CO = { nho: 50, vua: 38, to: 29 };
 
   function layKieu() {
@@ -1667,7 +1684,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   var lbSet = [], lbIdx = 0, lbLog = null, lbScale = 1, lbPan = { x: 0, y: 0 };
   var ZMAX = 5;
-  var lbFile = null, lbDlUrl = null;
+  var lbFileNgay = null, lbFileTron = null, lbDlUrl = null;
 
   // gom hết ảnh của một cây, xếp từ cũ tới mới, kèm ghi chú của ngày đó
   function plantPics(plantId) {
@@ -1702,6 +1719,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     ve.removeAttribute('src'); ve.load && ve.load();
     $('#lightbox').hidden = true;
     datNutXoa();
+    dongHoiLuu();
   }
 
   function showPic() {
@@ -1727,7 +1745,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var dow = $('#lbDown');
     dow.textContent = vid ? 'Tải video về' : 'Đang chuẩn bị…';
     dow.title = 'Tệp lưu về vẫn mang đúng ngày chụp';
-    lbFile = null;
+    lbFileNgay = null; lbFileTron = null;
     if (lbDlUrl) { try { URL.revokeObjectURL(lbDlUrl); } catch (e) {} lbDlUrl = null; }
     var og = p.log || lbLog || {};
     var ngay = p.taken || og.date || '';
@@ -1742,21 +1760,30 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var ten = chu + (ngay ? '-' + ngay : '') + duoi;
       dow.href = u;
       dow.download = ten;
-      var lam = vid ? Promise.resolve(b)
-                    : veNgay(b, ngay, tenCay).then(function (bb) { return stampJpeg(bb, ngay); });
-      return lam.catch(function () { return b; }).then(function (out) {
+      // dựng sẵn CẢ HAI bản ngay từ bây giờ. Lúc chị chọn trong khung hỏi là
+      // gửi đi liền được — iPhone không cho chờ rồi mới mở bảng chia sẻ.
+      var lam = vid
+        ? Promise.resolve({ co: b, tron: b })
+        : stampJpeg(b, ngay).then(function (tron) {
+            return veNgay(b, ngay, tenCay).then(function (bb) {
+              return stampJpeg(bb, ngay).then(function (co) {
+                return { co: co, tron: tron };
+              });
+            });
+          });
+      return lam.catch(function () { return { co: b, tron: b }; }).then(function (hai) {
         if (lbSet[lbIdx] !== p) return;
-        dow.textContent = vid ? 'Tải video về' : 'Tải ảnh về';
-        try { lbDlUrl = URL.createObjectURL(out); dow.href = lbDlUrl; } catch (e) {}
+        var loai = vid ? 'video/' + (p.ext || 'mp4') : 'image/jpeg';
+        try { lbDlUrl = URL.createObjectURL(hai.co); dow.href = lbDlUrl; } catch (e) {}
         try {
-          var f = new File([out], ten, { type: out.type ||
-                      (vid ? 'video/' + (p.ext || 'mp4') : 'image/jpeg') });
-          if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
-            lbFile = f;
-            dow.textContent = vid ? 'Lưu video' : 'Lưu ảnh';
-            dow.title = 'Lưu thẳng vào thư viện ảnh của máy, vẫn đúng ngày chụp';
-          }
+          lbFileNgay = new File([hai.co], ten, { type: hai.co.type || loai });
+          lbFileTron = new File([hai.tron], ten, { type: hai.tron.type || loai });
         } catch (e) {}
+        var share = !!(navigator.share && navigator.canShare && lbFileNgay &&
+                       navigator.canShare({ files: [lbFileNgay] }));
+        dow.textContent = vid ? (share ? 'Lưu video' : 'Tải video về')
+                              : (share ? 'Lưu ảnh' : 'Tải ảnh về');
+        dow.title = share ? 'Lưu về máy' : 'Tải tệp về';
       });
     });
   }
@@ -1832,6 +1859,55 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (n < 31) return n + ' ngày sau ảnh đầu';
     var m = Math.floor(n / 30.44), d = n - Math.round(m * 30.44);
     return m + ' tháng' + (d > 0 ? ' ' + d + ' ngày' : '') + ' sau ảnh đầu';
+  }
+
+  function luuTep(f, ngayChup, coDau) {
+    if (!f) return;
+    function veMay() {
+      try {
+        var u = URL.createObjectURL(f);
+        var a = document.createElement('a');
+        a.href = u; a.download = f.name;
+        document.body.appendChild(a); a.click();
+        setTimeout(function () {
+          try { a.remove(); URL.revokeObjectURL(u); } catch (e) {}
+        }, 1500);
+      } catch (e) { flash('Máy không cho lưu tệp này.'); }
+    }
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
+      try {
+        navigator.share({ files: [f] }).then(function () {
+          flash(coDau
+            ? 'Đã gửi đi. Ngày ' + ngayChup + ' in sẵn ở góc ảnh. Phần thông tin của máy ' +
+              'vẫn ghi hôm nay — muốn sửa thì bấm ⓘ rồi "Điều chỉnh".'
+            : 'Đã gửi đi — ảnh trơn, không có dấu ngày trên hình.', false, 14000);
+        }).catch(function (e) {
+          if (e && (e.name === 'AbortError' || e.code === 20)) return;
+          veMay();
+        });
+      } catch (e) { veMay(); }
+      return;
+    }
+    veMay();
+  }
+
+  function moHoiLuu() {
+    var p = lbSet[lbIdx];
+    if (!p) return;
+    var vid = p.kind === 'video', ngay = picDay(p, p.log || lbLog);
+    var t = $('#luuTieu'), ph = $('#luuPhu'), nc = $('#luuCo'), h = $('#hoiLuu');
+    if (t) t.textContent = vid ? 'Lưu video về máy' : 'Lưu ảnh về máy';
+    if (ph) ph.textContent = vid
+      ? 'Video thì không in ngày lên hình được.'
+      : 'Máy sẽ ghi ngày hôm nay chứ không giữ ngày chụp. In ngày lên góc ảnh thì ' +
+        'nhìn là biết, nhưng có tấm sẽ bị che mất một góc cây.';
+    if (nc) nc.textContent = ngay ? 'In ngày ' + ngay : 'In ngày';
+    if (h) h.hidden = false;
+  }
+
+  function dongHoiLuu() {
+    var h = $('#hoiLuu');
+    if (h) h.hidden = true;
   }
 
   function taiThang(a) {
@@ -2231,7 +2307,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   function entry(l, withName) {
     var p = byId(l.plantId);
-    return '<li><span class="when">' + shortDate(l.date) + '</span>' +
+    return '<li><span class="when">' + (editDate === l.id
+        ? '<input type="date" class="when-edit" id="wd-' + l.id + '" data-act="set-log-date" data-id="' +
+          l.id + '" value="' + l.date + '">'
+        : '<button type="button" class="when-btn" data-act="edit-date" data-id="' + l.id +
+          '" title="Bấm để sửa ngày">' + shortDate(l.date) + '</button>') + '</span>' +
       '<div class="entry">' +
       (editLog === l.id
         ? '<textarea class="note-edit" id="nl-' + l.id + '" data-act="set-log-note" data-id="' + l.id +
@@ -2273,28 +2353,21 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   document.addEventListener('click', function (ev) {
     var dl = ev.target.closest && ev.target.closest('#lbDown');
     if (dl) {
-      if (!lbFile) return;                      // máy không chia sẻ được thì tải về như cũ
+      if (!lbFileTron) return;                  // chưa dựng xong thì để nút tải thường
       ev.preventDefault();
-      var tep = lbFile;
-      var cur = lbSet[lbIdx];
-      var ngayChup = cur ? picDay(cur, cur.log || lbLog) : '';
-      try {
-        navigator.share({ files: [tep] }).then(function () {
-          // iOS dựng lại ảnh khi bỏ vào thư viện nên ngày chụp bị thay bằng giờ hiện tại.
-          // Không chặn được, chỉ nhắc chị sửa lại cho nhanh.
-          if (ngayChup) {
-            flash('Đã gửi đi. Ngày ' + ngayChup + ' đã in sẵn ở góc tấm ảnh. Phần thông tin ' +
-                  'của máy vẫn ghi hôm nay — muốn sửa thì bấm ⓘ rồi "Điều chỉnh".', false, 16000);
-          }
-        }).catch(function (e) {
-          if (e && (e.name === 'AbortError' || e.code === 20)) return;
-          taiThang(dl);
-        });
-      } catch (e) { taiThang(dl); }
+      var cur0 = lbSet[lbIdx];
+      var vid0 = cur0 && cur0.kind === 'video';
+      // chỉ video mới khỏi hỏi, vì không in lên hình được
+      if (vid0) {
+        luuTep(lbFileTron, picDay(cur0, (cur0 && cur0.log) || lbLog), false);
+        return;
+      }
+      moHoiLuu();
       return;
     }
     var pic = ev.target.closest('[data-pic]');
     if (pic) { openPic(pic.getAttribute('data-pic'), pic.getAttribute('data-log')); return; }
+    if (ev.target.id === 'hoiLuu') { dongHoiLuu(); return; }
     if (ev.target.id === 'hoiXoa') { dongHoiXoa(); return; }
     if (ev.target.id === 'lightbox' || ev.target.id === 'lbStage') { closeLb(); return; }
     if (ev.target.id === 'lbImg' && lbScale > 1) { resetZoom(); return; }
@@ -2309,6 +2382,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!b || b.tagName === 'SELECT' || b.tagName === 'FORM') return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), p;
 
+    if (act === 'edit-date') {
+      editDate = id; render();
+      setTimeout(function () {
+        var e = document.getElementById('wd-' + id);
+        if (e) { try { e.focus(); e.showPicker && e.showPicker(); } catch (x) {} }
+      }, 40);
+      return;
+    }
+    if (act === 'luu-thoi') { dongHoiLuu(); return; }
+    if (act === 'luu-co' || act === 'luu-khong') {
+      dongHoiLuu();
+      var cc = lbSet[lbIdx];
+      var nn = cc ? picDay(cc, cc.log || lbLog) : '';
+      luuTep(act === 'luu-co' ? lbFileNgay : lbFileTron, nn, act === 'luu-co');
+      return;
+    }
     if (act === 'lb-del') { moHoiXoa(); return; }
     if (act === 'hoi-thoi') { dongHoiXoa(); return; }
     if (act === 'hoi-xoa') { dongHoiXoa(); xoaAnhDangXem(); return; }
@@ -2324,7 +2413,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (act === 'open') {
       var moRa = openId !== id;
       openId = moRa ? id : null;
-      confirmDel = null; editName = null; editLog = null;
+      confirmDel = null; editName = null; editLog = null; editDate = null;
       renderGrid();
       // thẻ mở ra chiếm cả hàng nên mọi thứ bên dưới xê dịch — kéo thẳng tới nó,
       // khỏi phải đi tìm
@@ -2572,6 +2661,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }
     var act = el.getAttribute && el.getAttribute('data-act');
     if (!act) return;
+    if (act === 'set-log-date') {
+      var lg2 = logs.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
+      var nd = el.value;
+      if (lg2 && /^\d{4}-\d{2}-\d{2}$/.test(nd)) {
+        lg2.date = nd;
+        // tấm nào app chỉ đoán ngày thì cho theo ngày mới luôn; tấm đọc được
+        // ngày chụp thật thì để yên
+        (lg2.pics || []).forEach(function (q) {
+          if (q && typeof q === 'object' && q.src !== 'exif') { q.taken = nd; q.src = 'tay'; }
+        });
+        sortLogs();
+      }
+      editDate = null;
+      commit();
+      return;
+    }
     if (act === 'set-log-note') {
       var lg = logs.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
       if (lg) { lg.note = el.value.trim(); save(); }
@@ -2621,6 +2726,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (t && t.getAttribute && t.getAttribute('data-act') === 'set-name' && ev.key === 'Enter') {
       ev.preventDefault();
       doneName(t.getAttribute('data-id'));
+      return;
+    }
+    if (!$('#hoiLuu').hidden) {
+      if (ev.key === 'Escape') dongHoiLuu();
       return;
     }
     if (!$('#hoiXoa').hidden) {
