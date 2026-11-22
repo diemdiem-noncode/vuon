@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-194606">
+<html lang="vi" data-build="20261122-195717">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1207,6 +1207,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         a.click();
         document.body.removeChild(a);
         setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+        try { localStorage.setItem(BK_KEY, today()); } catch (e) {}
+        showUsage();
         flash('Xong — tệp nặng ' + (blob.size / 1048576).toFixed(1) + ' MB, gồm ' +
               plants.length + ' cây, ' + logs.length + ' ghi chú và ' + (items.length - 1) +
               ' ảnh/video. Gửi tệp này qua máy kia rồi bấm “Nạp tệp vào”.', true);
@@ -1403,18 +1405,37 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     applyPan();
   }
 
+  var BK_KEY = 'vuon-lan-cat', giuLau = null;
+
+  // nhờ trình duyệt đừng tự dọn kho ảnh khi lâu không ghé
+  function xinGiuLau() {
+    if (!navigator.storage || !navigator.storage.persist) return Promise.resolve(null);
+    return navigator.storage.persisted().then(function (co) {
+      if (co) { giuLau = true; return true; }
+      return navigator.storage.persist().then(function (ok) { giuLau = !!ok; return giuLau; });
+    }).catch(function () { return null; });
+  }
+
+  function lanCat() {
+    try { return localStorage.getItem(BK_KEY) || ''; } catch (e) { return ''; }
+  }
+
   function showUsage() {
     var el = $('#usage');
     if (!el) return;
+    var cat = lanCat();
+    var duoi = ' Lần cất gần nhất: ' + (cat ? shortDate(cat) : 'chưa lần nào') + '.';
+    if (giuLau === true) duoi += ' Máy đang hứa giữ kho ảnh lâu dài.';
+    else if (giuLau === false) duoi += ' ⚠ Máy chưa hứa giữ kho ảnh — lâu không mở trang là trình duyệt có thể dọn mất. ' +
+      'Trên iPhone: bấm nút Chia sẻ rồi “Thêm vào MH chính”, mở trang từ biểu tượng đó là chắc hơn hẳn.';
     if (!navigator.storage || !navigator.storage.estimate) {
-      el.textContent = 'Ảnh và video để riêng trong máy. Bản sao chỉ chép được chữ — ảnh phải tải về từng tấm.';
+      el.textContent = 'Ảnh và video để riêng trong máy này.' + duoi;
       return;
     }
     navigator.storage.estimate().then(function (e) {
       var mb = (e.usage || 0) / 1048576, q = (e.quota || 0) / 1048576;
       el.textContent = 'Đang dùng ' + mb.toFixed(1) + ' MB' +
-        (q ? ' trên khoảng ' + q.toFixed(0) + ' MB máy cho phép' : '') +
-        '. Bản sao chỉ chép được chữ — ảnh và video phải tải về từng tấm.';
+        (q ? ' trên khoảng ' + q.toFixed(0) + ' MB máy cho phép' : '') + '.' + duoi;
     }).catch(function () {});
   }
 
@@ -2146,6 +2167,20 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   load();
   render();
   if (fresh) flash('Mọi thứ lưu trong máy này thôi. Trước khi xóa lịch sử duyệt web nhớ ghé mục “Cất giữ” ở cuối trang nhé.');
+
+  xinGiuLau().then(function () { showUsage(); });
+
+  if (!fresh) setTimeout(function () {
+    var coAnh = false;
+    for (var i = 0; i < logs.length; i++) if ((logs[i].pics || []).length) { coAnh = true; break; }
+    if (!coAnh) return;
+    var cat = lanCat(), xa = cat ? dayDiff(cat, today()) : 999;
+    if (xa <= 30) return;
+    flash(cat
+      ? 'Đã ' + xa + ' ngày chưa cất bản sao. Ghé mục “Cất giữ” bấm “Tải hết về” cho chắc nhé.'
+      : 'Chưa cất bản sao lần nào. Ảnh chỉ nằm trong máy này — ghé mục “Cất giữ” bấm “Tải hết về” để có bản phòng hờ.',
+      false, 15000);
+  }, 2500);
 })();
 
 </script>
