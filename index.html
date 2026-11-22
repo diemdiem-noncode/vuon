@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261122-202605">
+<html lang="vi" data-build="20261122-225149">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -817,6 +817,57 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return (ps.length - v) + ' ảnh, ' + v + ' video';
   }
 
+  // tên tệp không dấu
+  function slug(s) {
+    s = String(s == null ? '' : s);
+    if (s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    s = s.replace(/\u0111/g, 'd').replace(/\u0110/g, 'D');
+    return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  }
+
+  // một khối APP1/Exif tối thiểu, chỉ mang ngày chụp
+  function exifApp1(ngay) {
+    var t = new Uint8Array(88), dv = new DataView(t.buffer);
+    t[0] = 0x4D; t[1] = 0x4D;                 // big-endian
+    dv.setUint16(2, 0x002A); dv.setUint32(4, 8);
+    dv.setUint16(8, 2);                       // IFD0: 2 mục
+    dv.setUint16(10, 0x0132); dv.setUint16(12, 2); dv.setUint32(14, 20); dv.setUint32(18, 68);
+    dv.setUint16(22, 0x8769); dv.setUint16(24, 4); dv.setUint32(26, 1);  dv.setUint32(30, 38);
+    dv.setUint32(34, 0);
+    dv.setUint16(38, 2);                      // Exif IFD: 2 mục
+    dv.setUint16(40, 0x9003); dv.setUint16(42, 2); dv.setUint32(44, 20); dv.setUint32(48, 68);
+    dv.setUint16(52, 0x9004); dv.setUint16(54, 2); dv.setUint32(56, 20); dv.setUint32(60, 68);
+    dv.setUint32(64, 0);
+    var txt = ngay.slice(0, 4) + ':' + ngay.slice(5, 7) + ':' + ngay.slice(8, 10) + ' 12:00:00';
+    for (var i = 0; i < 19; i++) t[68 + i] = txt.charCodeAt(i);
+    t[87] = 0;
+    var out = new Uint8Array(98);
+    out[0] = 0xFF; out[1] = 0xE1; out[2] = 0; out[3] = 96;
+    out[4] = 0x45; out[5] = 0x78; out[6] = 0x69; out[7] = 0x66; out[8] = 0; out[9] = 0;
+    out.set(t, 10);
+    return out;
+  }
+
+  // chép ngày chụp vào chính tệp JPEG, để máy nào mở cũng thấy đúng ngày
+  function stampJpeg(blob, ngay) {
+    if (!blob || !ngay || !/^\d{4}-\d{2}-\d{2}$/.test(ngay)) return Promise.resolve(blob);
+    return sliceBuf(blob, 0, blob.size).then(function (buf) {
+      if (!buf) return blob;
+      var u8 = new Uint8Array(buf);
+      if (u8.length < 4 || u8[0] !== 0xFF || u8[1] !== 0xD8) return blob;
+      var lim = Math.min(u8.length - 6, 65536);
+      for (var i = 2; i < lim; i++) {
+        if (u8[i] === 0x45 && u8[i+1] === 0x78 && u8[i+2] === 0x69 &&
+            u8[i+3] === 0x66 && u8[i+4] === 0 && u8[i+5] === 0) return blob;
+      }
+      var at = 2;
+      if (u8[2] === 0xFF && u8[3] === 0xE0) at = 4 + ((u8[4] << 8) | u8[5]);
+      if (at + 2 > u8.length) at = 2;
+      return new Blob([u8.subarray(0, at), exifApp1(ngay), u8.subarray(at)],
+                      { type: 'image/jpeg' });
+    }).catch(function () { return blob; });
+  }
+
   function picDay(p, l) {
     var d = (p && p.taken) || (l && l.date) || '';
     if (!d) return '';
@@ -1279,6 +1330,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
 
   var lbSet = [], lbIdx = 0, lbLog = null, lbZoom = 0, lbPan = { x: 0, y: 0 };
+  var lbFile = null, lbDlUrl = null;
 
   // gom hết ảnh của một cây, xếp từ cũ tới mới, kèm ghi chú của ngày đó
   function plantPics(plantId) {
@@ -1332,15 +1384,36 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     ve.removeAttribute('src'); ve.load && ve.load();
     im.hidden = vid; ve.hidden = !vid;
     $('#lbStage').classList.toggle('is-video', vid);
-    $('#lbDown').textContent = vid ? 'Tải video về' : 'Tải ảnh về';
+    var dow = $('#lbDown');
+    dow.textContent = vid ? 'Tải video về' : 'Tải ảnh về';
+    dow.title = 'Tệp lưu về vẫn mang đúng ngày chụp';
+    lbFile = null;
+    if (lbDlUrl) { try { URL.revokeObjectURL(lbDlUrl); } catch (e) {} lbDlUrl = null; }
+    var og = p.log || lbLog || {};
+    var ngay = p.taken || og.date || '';
+    var chu = slug((byId(og.plantId) || {}).name) || 'cay';
     getPic(p.id).then(function (b) {
       if (!(b instanceof Blob)) { flash('Không tìm thấy tệp này trong máy.'); return; }
       var u = urlCache[p.id];
       if (!u) { try { u = urlCache[p.id] = URL.createObjectURL(b); } catch (e) { return; } }
       if (vid) ve.src = u; else im.src = u;
-      var a = $('#lbDown');
-      a.href = u;
-      a.download = 'cay-' + (p.taken || 'anh') + '-' + p.id + (vid ? '.' + p.ext : '.jpg');
+      var duoi = vid ? '.' + (p.ext || 'mp4') : (b.type === 'image/png' ? '.png' : '.jpg');
+      var ten = chu + (ngay ? '-' + ngay : '') + duoi;
+      dow.href = u;
+      dow.download = ten;
+      return (vid ? Promise.resolve(b) : stampJpeg(b, ngay)).then(function (out) {
+        if (lbSet[lbIdx] !== p) return;
+        try { lbDlUrl = URL.createObjectURL(out); dow.href = lbDlUrl; } catch (e) {}
+        try {
+          var f = new File([out], ten, { type: out.type ||
+                      (vid ? 'video/' + (p.ext || 'mp4') : 'image/jpeg') });
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
+            lbFile = f;
+            dow.textContent = vid ? 'Lưu video' : 'Lưu ảnh';
+            dow.title = 'Lưu thẳng vào thư viện ảnh của máy, vẫn đúng ngày chụp';
+          }
+        } catch (e) {}
+      });
     });
   }
 
@@ -1359,6 +1432,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (n < 31) return n + ' ngày sau ảnh đầu';
     var m = Math.floor(n / 30.44), d = n - Math.round(m * 30.44);
     return m + ' tháng' + (d > 0 ? ' ' + d + ' ngày' : '') + ' sau ảnh đầu';
+  }
+
+  function taiThang(a) {
+    try {
+      var x = document.createElement('a');
+      x.href = a.href; x.download = a.download;
+      document.body.appendChild(x); x.click();
+      setTimeout(function () { try { x.remove(); } catch (e) {} }, 0);
+    } catch (e) { flash('Máy không cho lưu tệp này.'); }
   }
 
   function stepPic(d) {
@@ -1754,6 +1836,19 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   /* ---------- events ---------- */
   document.addEventListener('click', function (ev) {
+    var dl = ev.target.closest && ev.target.closest('#lbDown');
+    if (dl) {
+      if (!lbFile) return;                      // máy không chia sẻ được thì tải về như cũ
+      ev.preventDefault();
+      var tep = lbFile;
+      try {
+        navigator.share({ files: [tep] }).catch(function (e) {
+          if (e && (e.name === 'AbortError' || e.code === 20)) return;
+          taiThang(dl);
+        });
+      } catch (e) { taiThang(dl); }
+      return;
+    }
     var pic = ev.target.closest('[data-pic]');
     if (pic) { openPic(pic.getAttribute('data-pic'), pic.getAttribute('data-log')); return; }
     if (ev.target.id === 'lightbox' || ev.target.id === 'lbStage') { closeLb(); return; }
