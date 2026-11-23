@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-002855">
+<html lang="vi" data-build="20261123-082814">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -254,6 +254,25 @@ h1 {
 
 /* --- blocks --- */
 .block { display: flex; flex-direction: column; gap: 16px; }
+.timrow {
+  display: flex; align-items: center; gap: 9px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); padding: 0 11px;
+}
+.timrow:focus-within { border-color: var(--accent); }
+.timico { color: var(--ink-2); flex: none; display: block; }
+.timrow input {
+  flex: 1; min-width: 0; border: 0; background: none; outline: none;
+  font: inherit; font-size: 16px; color: var(--ink); padding: 11px 0;
+  -webkit-appearance: none; appearance: none;
+}
+.timrow input::-webkit-search-cancel-button,
+.timrow input::-webkit-search-decoration { -webkit-appearance: none; display: none; }
+.timxoa {
+  border: 0; background: none; cursor: pointer; font: inherit; font-size: 15px;
+  color: var(--ink-2); padding: 6px 2px; line-height: 1;
+}
+.timdem { margin: -8px 0 0; }
 .block-head {
   display: flex;
   align-items: center;
@@ -484,6 +503,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       <h2>Vườn của tôi</h2>
       <button class="btn btn-accent" type="button" data-act="toggle-add">Thêm cây</button>
     </div>
+    <div class="timrow">
+      <svg class="timico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M10.5 10.5 L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <input id="timCay" type="search" autocomplete="off" autocorrect="off"
+             placeholder="Tìm cây — gõ tên, hoặc chữ trong ghi chú" aria-label="Tìm cây">
+      <button class="timxoa" id="timXoa" type="button" data-act="xoa-tim" aria-label="Xóa chữ đang tìm" hidden>&#10005;</button>
+    </div>
+    <p class="sp timdem" id="timDem" hidden></p>
     <form class="panel" id="addForm" hidden>
       <div class="fields">
         <div class="field" style="flex:2 1 200px">
@@ -624,6 +653,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   };
 
   var plants = [], logs = [], openId = null, confirmDel = null, fresh = false;
+  var timChu = '';
   var editName = null;
   var confirmReset = false, confirmImport = false, pendingLog = null, dangLuu = false, editLog = null;
   var editDate = null;
@@ -2166,15 +2196,49 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (keep.ss != null) { try { fe.setSelectionRange(keep.ss, keep.se); } catch (e) {} }
   }
 
+  // gõ "aster tim" cũng ra "Aster tím" — bỏ dấu rồi mới so
+  function khongDau(t) {
+    t = (t || '').toLowerCase();
+    try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+    return t.replace(/\u0111/g, 'd');
+  }
+
+  function hopTim(p) {
+    if (!timChu) return true;
+    if (khongDau(p.name).indexOf(timChu) >= 0) return true;
+    for (var i = 0; i < logs.length; i++) {
+      if (logs[i].plantId === p.id && khongDau(logs[i].note).indexOf(timChu) >= 0) return true;
+    }
+    return false;
+  }
+
+  function demTim(n) {
+    var x = $('#timXoa'), o = $('#timDem');
+    if (x) x.hidden = !timChu;
+    if (!o) return;
+    if (!timChu) { o.hidden = true; o.textContent = ''; return; }
+    o.hidden = false;
+    o.textContent = n ? ('Thấy ' + n + ' cây.') : 'Không thấy cây nào.';
+  }
+
   function renderGrid() {
     var g = $('#grid'), keep = grabDetail();
     if (!plants.length) {
+      demTim(0);
       g.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Vườn còn trống</b>Bấm “Thêm cây” để thêm bé đầu tiên.</div>';
       return;
     }
     var ordered = plants.slice().sort(function (a, b) {
       return (a.dead ? 1 : 0) - (b.dead ? 1 : 0);
     });
+    if (timChu) ordered = ordered.filter(hopTim);
+    demTim(ordered.length);
+    if (!ordered.length) {
+      g.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Không thấy cây nào</b>' +
+        'Không cây nào có tên hay ghi chú chứa chữ đó.<br>' +
+        '<button class="btn btn-sm" type="button" data-act="xoa-tim" style="margin-top:12px">Xóa chữ tìm</button></div>';
+      return;
+    }
     g.innerHTML = ordered.map(card).join('');
     putDetail(keep);
     hydratePics();
@@ -2404,6 +2468,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (act === 'lb-close') { closeLb(); return; }
     if (act === 'lb-prev') { stepPic(-1); return; }
     if (act === 'lb-next') { stepPic(1); return; }
+    if (act === 'xoa-tim') {
+      var ti = $('#timCay');
+      if (ti) ti.value = '';
+      timChu = '';
+      renderGrid();
+      if (ti) ti.focus();
+      return;
+    }
     if (act === 'toggle-add') {
       var f = $('#addForm');
       f.hidden = !f.hidden;
@@ -2532,6 +2604,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       flash('Xong rồi — ' + plants.length + ' cây và ' + logs.length + ' ghi chú đã về.');
       return;
     }
+  });
+
+  document.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (!el || el.id !== 'timCay') return;
+    timChu = khongDau(el.value).trim();
+    renderGrid();
   });
 
   document.addEventListener('submit', function (ev) {
