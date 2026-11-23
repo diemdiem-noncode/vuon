@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-133446">
+<html lang="vi" data-build="20261123-134707">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -408,6 +408,18 @@ h2 {
 }
 .namebtn.ok { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .morabtn { min-width: 40px; text-align: center; }
+.keonut {
+  min-width: 40px; text-align: center;
+  cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none;
+}
+.keonut:active { cursor: grabbing; }
+.card.dangkeo {
+  border-color: var(--accent);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
+  transform: scale(1.015);
+}
+.card.dangkeo .keonut { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+body.keoco { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .name-edit { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 
 /* --- expanded detail --- */
@@ -2518,6 +2530,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
              ' aria-label="' + (editing ? 'Xong, thôi sửa tên' : 'Sửa tên cây') + '"' +
              ' title="' + (editing ? 'Xong' : 'Sửa tên') + '">' + (editing ? '✓' : '✎') + '</button>'
            : '') +
+         '<button class="namebtn keonut" type="button" data-keo="' + p.id + '"' +
+           ' aria-label="Giữ rồi kéo để đổi chỗ cây" title="Giữ rồi kéo để đổi chỗ cây">&#9776;</button>' +
          '<button class="namebtn morabtn" type="button" data-act="open" data-id="' + p.id + '"' +
            ' aria-expanded="' + (isOpen ? 'true' : 'false') + '"' +
            ' aria-label="' + (isOpen ? 'Thu lại' : 'Mở ra để xem và ghi chú') + '"' +
@@ -2542,6 +2556,93 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (isOpen) h += detail(p);
     return h + '</article>';
   }
+
+  /* ---------- kéo đổi chỗ cây ---------- */
+  var keo = null, keoX = 0, keoY = 0, cuonId = null;
+
+  // chỉ mấy thẻ đang hiện mới đổi chỗ cho nhau — cây đang bị tab hay chữ tìm giấu đi
+  // thì vẫn nằm yên chỗ cũ trong danh sách
+  function thuTuDom() {
+    return [].map.call(document.querySelectorAll('.card[data-the]'), function (c) {
+      return c.getAttribute('data-the');
+    });
+  }
+
+  function sapLaiTheoDom() {
+    var ids = thuTuDom();
+    var cho = [], i;
+    for (i = 0; i < plants.length; i++) if (ids.indexOf(plants[i].id) >= 0) cho.push(i);
+    var moi = ids.map(byId).filter(Boolean);
+    if (!moi.length || moi.length !== cho.length) return false;
+    for (i = 0; i < cho.length; i++) plants[cho[i]] = moi[i];
+    return true;
+  }
+
+  function ngamVao(x, y) {
+    if (!keo) return;
+    keo.el.style.pointerEvents = 'none';
+    var t = document.elementFromPoint(x, y);
+    keo.el.style.pointerEvents = '';
+    t = (t && t.closest) ? t.closest('.card[data-the]') : null;
+    if (!t || t === keo.el || t.parentNode !== keo.el.parentNode) return;
+    var r = t.getBoundingClientRect();
+    var g = keo.el.parentNode;
+    if (y > r.top + r.height / 2) g.insertBefore(keo.el, t.nextSibling);
+    else g.insertBefore(keo.el, t);
+  }
+
+  // kéo tới sát mép thì trang tự trôi, khỏi phải thả ra kéo lại
+  function batDauCuon() {
+    if (cuonId) return;
+    cuonId = setInterval(function () {
+      if (!keo) return;
+      var h = window.innerHeight, d = 0;
+      if (keoY < 80) d = -Math.min(20, (80 - keoY) / 3);
+      else if (keoY > h - 100) d = Math.min(20, (keoY - (h - 100)) / 3);
+      if (!d) return;
+      window.scrollBy(0, d);
+      ngamVao(keoX, keoY);
+    }, 16);
+  }
+  function dungCuon() { if (cuonId) { clearInterval(cuonId); cuonId = null; } }
+
+  document.addEventListener('pointerdown', function (ev) {
+    var h = ev.target.closest && ev.target.closest('[data-keo]');
+    if (!h) return;
+    var el = h.closest('.card');
+    if (!el) return;
+    ev.preventDefault();
+    try { h.setPointerCapture(ev.pointerId); } catch (e) {}
+    keo = { h: h, el: el, pid: ev.pointerId, truoc: thuTuDom().join() };
+    keoX = ev.clientX; keoY = ev.clientY;
+    el.classList.add('dangkeo');
+    document.body.classList.add('keoco');
+    batDauCuon();
+  });
+
+  document.addEventListener('pointermove', function (ev) {
+    if (!keo || ev.pointerId !== keo.pid) return;
+    ev.preventDefault();
+    keoX = ev.clientX; keoY = ev.clientY;
+    ngamVao(keoX, keoY);
+  });
+
+  function thaKeo() {
+    if (!keo) return;
+    keo.el.classList.remove('dangkeo');
+    document.body.classList.remove('keoco');
+    dungCuon();
+    var yen = keo.truoc === thuTuDom().join();
+    keo = null;
+    if (yen) return;
+    if (sapLaiTheoDom()) {
+      save(true);
+      render();
+      flash('Đã đổi chỗ. Thứ tự mới nhớ luôn trong máy này.', false, 4000);
+    } else render();
+  }
+  document.addEventListener('pointerup', thaKeo);
+  document.addEventListener('pointercancel', thaKeo);
 
   // đưa thẻ cây về chỗ nhìn thấy được, chừa khoảng trống phía trên
   function keoToiThe(id) {
