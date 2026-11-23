@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-100221">
+<html lang="vi" data-build="20261123-124918">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -273,6 +273,32 @@ h1 {
   color: var(--ink-2); padding: 6px 2px; line-height: 1;
 }
 .timdem { margin: -8px 0 0; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tab {
+  font: inherit; font-size: 13px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+}
+.tab:hover { background: var(--surface-2); }
+.tab.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tabn { font-size: 11.5px; opacity: .75; font-variant-numeric: tabular-nums; }
+.loaipick { display: flex; gap: 7px; }
+.loaibtn {
+  font: inherit; font-size: 12px; cursor: pointer; flex: 1 1 0; min-width: 0;
+  padding: 6px 8px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+}
+.loaibtn:hover { background: var(--surface-2); }
+.loaibtn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.ganbar {
+  grid-column: 1 / -1;
+  display: flex; flex-wrap: wrap; gap: 9px; align-items: center;
+  padding: 11px 13px; border: 1px dashed var(--line); border-radius: 12px;
+  background: var(--surface); font-size: 13px; color: var(--ink-2);
+}
+.ganbar span { flex: 1 1 190px; min-width: 0; }
 .block-head {
   display: flex;
   align-items: center;
@@ -521,6 +547,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   text-align: center;
 }
 @media (max-width: 480px) {
+  .ganbar span { flex-basis: 100%; }
   .when { width: 50px; font-size: 11.5px; }
   .wrap { gap: 32px; padding-block: 24px 56px; }
 }
@@ -545,6 +572,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       <h2>Vườn của tôi</h2>
       <button class="btn btn-accent" type="button" data-act="toggle-add">Thêm cây</button>
     </div>
+    <div class="tabs" id="tabs" role="tablist" aria-label="Lọc theo loại cây" hidden></div>
     <div class="timrow">
       <svg class="timico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <circle cx="7" cy="7" r="4.4" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -560,6 +588,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         <div class="field" style="flex:2 1 200px">
           <label for="np-name">Gọi nó là gì</label>
           <input id="np-name" name="name" placeholder="Aster tím mini" required>
+        </div>
+        <div class="field">
+          <label for="np-loai">Loại cây</label>
+          <select id="np-loai" name="loai">
+            <option value="sen">Sen đá</option>
+            <option value="xr">Xương rồng</option>
+          </select>
         </div>
         <div class="field">
           <label for="np-stage">Rễ tới đâu rồi</label>
@@ -687,6 +722,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     'rooting': { label: 'Đang ra rễ', hint: 'Giữ ẩm nhẹ ở đáy, mặt đất để khô. Đừng để khô cong, cũng đừng nhấc lên xem — nhấc một cái là gãy rễ non. Chưa bón đâu, rễ non chưa ăn được phân.' },
     '':        { label: '—',          hint: '' }
   };
+  var LOAI = { sen: 'Sen đá', xr: 'Xương rồng' };
+  var TAB_KEY = 'vuon-sen-da.tab';
   var KEY = 'vuon-sen-da.v1';
 
   var SEED = {
@@ -700,6 +737,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   var plants = [], logs = [], openId = null, confirmDel = null, fresh = false;
   var timChu = '';
+  var tab = 'all', ganLoai = null;
+  try {
+    var t0 = localStorage.getItem(TAB_KEY);
+    if (t0 === 'sen' || t0 === 'xr' || t0 === 'none') tab = t0;
+  } catch (e) {}
   var editName = null;
   var confirmReset = false, confirmImport = false, pendingLog = null, dangLuu = false, editLog = null;
   var editDate = null;
@@ -2176,7 +2218,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   /* ---------- render ---------- */
   function render() {
-    renderStats(); renderGrid(); renderReset(); renderImport(); renderDau();
+    renderStats(); renderTabs(); renderGrid(); renderReset(); renderImport(); renderDau();
     hydratePics();
   }
 
@@ -2329,6 +2371,62 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return t.replace(/\u0111/g, 'd');
   }
 
+  function loaiCua(p) {
+    return (p.loai === 'sen' || p.loai === 'xr') ? p.loai : '';
+  }
+
+  function hopTab(p) {
+    if (tab === 'all') return true;
+    if (tab === 'none') return !loaiCua(p);
+    return loaiCua(p) === tab;
+  }
+
+  function renderTabs() {
+    var el = $('#tabs');
+    if (!el) return;
+    var n = { all: plants.length, sen: 0, xr: 0, none: 0 };
+    plants.forEach(function (p) { n[loaiCua(p) || 'none']++; });
+    if (tab === 'none' && !n.none) {
+      tab = 'all';
+      try { localStorage.setItem(TAB_KEY, tab); } catch (e) {}
+    }
+    el.hidden = !plants.length;
+    var ds = [['all', 'Tất cả'], ['sen', LOAI.sen], ['xr', LOAI.xr]];
+    if (n.none) ds.push(['none', 'Chưa phân loại']);
+    el.innerHTML = ds.map(function (d) {
+      var on = tab === d[0];
+      return '<button class="tab' + (on ? ' on' : '') + '" type="button" role="tab"' +
+             ' aria-selected="' + (on ? 'true' : 'false') + '"' +
+             ' data-act="tab" data-tab="' + d[0] + '">' + d[1] +
+             '<span class="tabn">' + n[d[0]] + '</span></button>';
+    }).join('');
+  }
+
+  // hai nút Sen đá / Xương rồng — bấm lại cái đang chọn là bỏ ra, về chưa phân loại
+  function chonLoai(p) {
+    var cur = loaiCua(p);
+    return '<div class="loaipick">' + ['sen', 'xr'].map(function (k) {
+      return '<button class="loaibtn' + (cur === k ? ' on' : '') + '" type="button"' +
+             ' data-act="set-loai" data-id="' + p.id + '" data-loai="' + k + '"' +
+             ' aria-pressed="' + (cur === k ? 'true' : 'false') + '">' + LOAI[k] + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function ganThanh(n) {
+    if (!n) return '';
+    if (ganLoai) {
+      return '<div class="ganbar"><span>Gắn ' + n + ' cây đang hiện vào <b>' +
+             LOAI[ganLoai] + '</b> nhé?</span>' +
+             '<button class="btn btn-sm" type="button" data-act="gan-thoi">Thôi</button>' +
+             '<button class="btn btn-sm btn-accent" type="button" data-act="gan-lam">Gắn hết</button></div>';
+    }
+    return '<div class="ganbar"><span>' + n + ' cây chưa phân loại' +
+           (timChu ? ' đang hiện' : '') +
+           '. Bấm Sen đá hay Xương rồng ở từng thẻ, hoặc gắn hết một lượt:</span>' +
+           '<button class="btn btn-sm" type="button" data-act="gan-het" data-loai="sen">Hết → Sen đá</button>' +
+           '<button class="btn btn-sm" type="button" data-act="gan-het" data-loai="xr">Hết → Xương rồng</button></div>';
+  }
+
   function hopTim(p) {
     if (!timChu) return true;
     if (khongDau(p.name).indexOf(timChu) >= 0) return true;
@@ -2354,20 +2452,32 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       g.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Vườn còn trống</b>Bấm “Thêm cây” để thêm bé đầu tiên.</div>';
       return;
     }
-    var ordered = plants.slice().sort(function (a, b) {
-      return (a.dead ? 1 : 0) - (b.dead ? 1 : 0);
-    });
-    if (timChu) ordered = ordered.filter(hopTim);
+    var ordered = dsHienRa();
     demTim(ordered.length);
     if (!ordered.length) {
-      g.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Không thấy cây nào</b>' +
-        'Không cây nào có tên hay ghi chú chứa chữ đó.<br>' +
-        '<button class="btn btn-sm" type="button" data-act="xoa-tim" style="margin-top:12px">Xóa chữ tìm</button></div>';
+      g.innerHTML = timChu
+        ? '<div class="empty" style="grid-column:1/-1"><b>Không thấy cây nào</b>' +
+          'Không cây nào có tên hay ghi chú chứa chữ đó' +
+          (tab === 'all' ? '' : ' trong tab này') + '.<br>' +
+          '<button class="btn btn-sm" type="button" data-act="xoa-tim" style="margin-top:12px">Xóa chữ tìm</button></div>'
+        : '<div class="empty" style="grid-column:1/-1"><b>Tab này chưa có cây nào</b>' +
+          'Chưa cây nào được gắn vào đây.<br>' +
+          '<button class="btn btn-sm" type="button" data-act="tab" data-tab="all" style="margin-top:12px">Xem tất cả</button></div>';
       return;
     }
-    g.innerHTML = ordered.map(card).join('');
+    g.innerHTML = (tab === 'none' ? ganThanh(ordered.length) : '') + ordered.map(card).join('');
     putDetail(keep);
     hydratePics();
+  }
+
+  // danh sách đang bày ra màn hình — tab lọc trước, rồi tới chữ đang tìm
+  function dsHienRa() {
+    var ds = plants.slice().sort(function (a, b) {
+      return (a.dead ? 1 : 0) - (b.dead ? 1 : 0);
+    });
+    ds = ds.filter(hopTab);
+    if (timChu) ds = ds.filter(hopTim);
+    return ds;
   }
 
   function thanhTuoi(p, every, cls) {
@@ -2404,6 +2514,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
            ' title="' + (isOpen ? 'Thu lại' : 'Mở ra để xem và ghi chú') + '">' +
            (isOpen ? '▴' : '▾') + '</button>' +
          '</div>';
+    if (tab === 'none') h += chonLoai(p);
     var wev = waterEvery(p);
     var con = dueIn(p.lastWater, wev), mau = dueClass(con);
     if (!gone) {
@@ -2437,6 +2548,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function detail(p) {
     var mine = logs.filter(function (l) { return l.plantId === p.id; });
     var h = '<div class="detail">';
+    if (tab !== 'none') h += chonLoai(p);
     h += '<form data-act="note" data-id="' + p.id + '">' +
          '<div class="filepick ghi-dau">' +
          '<input type="date" class="ghi-ngay" id="d-date-' + p.id + '" name="date" value="' + today() + '"' +
@@ -2597,6 +2709,33 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       veXemTruoc(pin4);
       return;
     }
+    if (act === 'tab') {
+      tab = b.getAttribute('data-tab') || 'all';
+      ganLoai = null;
+      try { localStorage.setItem(TAB_KEY, tab); } catch (e) {}
+      renderTabs(); renderGrid();
+      return;
+    }
+    if (act === 'set-loai') {
+      var pl = byId(id);
+      if (!pl) return;
+      var kl = b.getAttribute('data-loai');
+      pl.loai = loaiCua(pl) === kl ? '' : kl;
+      commit();
+      return;
+    }
+    if (act === 'gan-het') { ganLoai = b.getAttribute('data-loai'); renderGrid(); return; }
+    if (act === 'gan-thoi') { ganLoai = null; renderGrid(); return; }
+    if (act === 'gan-lam') {
+      var kg = ganLoai;
+      ganLoai = null;
+      if (!kg) { renderGrid(); return; }
+      var dem = 0;
+      dsHienRa().forEach(function (x) { if (!loaiCua(x)) { x.loai = kg; dem++; } });
+      commit();
+      flash('Đã gắn ' + dem + ' cây vào ' + LOAI[kg] + '. Bấm nhầm thì mở thẻ cây ra đổi lại được.', false, 9000);
+      return;
+    }
     if (act === 'xoa-tim') {
       var ti = $('#timCay');
       if (ti) ti.value = '';
@@ -2608,7 +2747,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (act === 'toggle-add') {
       var f = $('#addForm');
       f.hidden = !f.hidden;
-      if (!f.hidden) $('#np-name').focus();
+      if (!f.hidden) {
+        var sl = $('#np-loai');
+        if (sl && (tab === 'sen' || tab === 'xr')) sl.value = tab;
+        $('#np-name').focus();
+      }
       return;
     }
     if (act === 'open') {
@@ -2752,6 +2895,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         id: newId('p'),
         name: name,
         stage: f.elements.stage.value,
+        loai: f.elements.loai ? f.elements.loai.value : '',
         lastWater: '', waterEvery: 7,
         added: today()
       });
