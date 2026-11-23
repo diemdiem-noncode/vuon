@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-091222">
+<html lang="vi" data-build="20261123-093034">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -404,9 +404,16 @@ h2 {
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 150px; }
 .field label, .field .lbl { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
 /* ô ngày của iPhone không co lại được — chừa đủ chỗ, không ép 136px nữa */
-.f-ngay { flex: 0 1 168px; }
-.f-ngay input[type="date"] { width: 100%; min-width: 0; }
-.f-anh { flex: 1 1 170px; }
+.ghi-dau { gap: 8px; }
+.ghi-ngay { width: auto; flex: 0 1 152px; min-width: 0; padding: 7px 9px; }
+.ghi-dau .filebtn { flex: 0 0 auto; }
+.ghi-xem { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+.o-xem {
+  width: 54px; height: 54px; border-radius: 9px; object-fit: cover;
+  border: 1px solid var(--line); background: var(--surface-2); flex: none;
+}
+span.o-xem { display: grid; place-items: center; font-size: 17px; color: var(--ink-2); }
+.ghi-xem .so { font-size: 12px; color: var(--ink-2); margin-left: 2px; }
 input, select, textarea {
   font: inherit;
   font-size: 14px;
@@ -493,7 +500,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 }
 @media (max-width: 480px) {
   .when { width: 50px; font-size: 11.5px; }
-  .f-ngay, .f-anh { flex: 1 1 100%; }
   .wrap { gap: 32px; padding-block: 24px 56px; }
 }
 </style>
@@ -2180,6 +2186,39 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       '<div class="stat"><b>' + rooting + '</b><span>đang ra rễ</span></div>';
   }
 
+  // chọn xong thấy ngay mấy tấm vừa chọn, khỏi đoán máy nhận chưa
+  function veXemTruoc(pin) {
+    var f = pin.closest ? pin.closest('form') : null;
+    var o = f ? f.querySelector('.ghi-xem') : null;
+    if (!o) return;
+    (o.__urls || []).forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+    o.__urls = [];
+    o.innerHTML = '';
+    var fs = pin.files ? [].slice.call(pin.files) : [];
+    if (!fs.length) { o.hidden = true; return; }
+    o.hidden = false;
+    fs.slice(0, 12).forEach(function (t) {
+      if (laVideo(t)) {
+        var d = document.createElement('span');
+        d.className = 'o-xem'; d.textContent = '▶';
+        o.appendChild(d);
+        return;
+      }
+      var u;
+      try { u = URL.createObjectURL(t); } catch (e) { return; }
+      o.__urls.push(u);
+      var im = document.createElement('img');
+      im.className = 'o-xem'; im.src = u; im.alt = '';
+      o.appendChild(im);
+    });
+    var sp = document.createElement('span');
+    sp.className = 'so';
+    sp.textContent = fs.length > 12
+      ? fs.length + ' tệp (xem 12 tấm đầu)'
+      : fs.length + ' tệp';
+    o.appendChild(sp);
+  }
+
   function grabDetail() {
     var box = document.querySelector('.card.open .detail');
     if (!box) return null;
@@ -2326,16 +2365,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var mine = logs.filter(function (l) { return l.plantId === p.id; });
     var h = '<div class="detail">';
     h += '<form data-act="note" data-id="' + p.id + '">' +
-         '<div class="fields" style="align-items:flex-end">' +
-         '<div class="field f-ngay"><label for="d-date-' + p.id + '">Ngày</label>' +
-         '<input type="date" id="d-date-' + p.id + '" name="date" value="' + today() + '"></div>' +
-         '<div class="field f-anh">' +
-         '<div class="filepick">' +
+         '<div class="filepick ghi-dau">' +
+         '<input type="date" class="ghi-ngay" id="d-date-' + p.id + '" name="date" value="' + today() + '"' +
+           ' aria-label="Ngày của dòng này" title="Ngày của dòng này">' +
          '<input type="file" id="d-pic-' + p.id + '" name="pic" accept="image/*,video/*" multiple>' +
          '<label class="filebtn" for="d-pic-' + p.id + '">Chọn ảnh / video</label>' +
-         '<span class="filename">chưa chọn gì</span>' +
-         '</div></div>' +
          '</div>' +
+         '<div class="ghi-xem" hidden></div>' +
          '<div class="field" style="margin-top:8px">' +
          '<textarea id="d-note-' + p.id + '" name="note" rows="2" placeholder="Hôm nay cây thế nào…"></textarea></div>' +
          '<div class="row-end" style="margin-top:10px"><button class="btn btn-accent btn-sm" type="submit">Lưu lại</button></div>' +
@@ -2659,15 +2695,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       // KHÔNG xóa pin.value và KHÔNG vẽ lại màn lúc này: iPhone có thể
       // thu hồi tệp đã chọn ngay khi ô chọn bị đụng tới
       if (note) save();
-      var tag = pin && pin.parentNode && pin.parentNode.querySelector('.filename');
-      if (tag) tag.textContent = 'đang lưu…';
       dangLuu = true;
       flash('Đang xử lý ' + files.length + ' tệp, chờ xíu…', true);
       savePics(files, function (xong, tong) {
         flash('Đang xử lý ' + xong + '/' + tong + ' tệp, chờ xíu…', true);
       }).then(function (res) {
         dangLuu = false;
-        try { if (pin) pin.value = ''; } catch (e) {}
+        try { if (pin) { pin.value = ''; veXemTruoc(pin); } } catch (e) {}
         var ps = res.pics;
         var g = chiaTheoNgay(pid, ps, ngay);
         sortLogs();
@@ -2736,11 +2770,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       return;
     }
     if (el.type === 'file' && el.name === 'pic') {
-      var tag = el.parentNode && el.parentNode.querySelector('.filename');
-      if (tag) {
-        var n = el.files ? el.files.length : 0;
-        tag.textContent = n ? 'đã chọn ' + n + ' tệp' : 'chưa chọn gì';
-      }
+      veXemTruoc(el);
       return;
     }
     var act = el.getAttribute && el.getAttribute('data-act');
