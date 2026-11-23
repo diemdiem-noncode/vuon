@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-134707">
+<html lang="vi" data-build="20261123-142914">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -414,9 +414,10 @@ h2 {
 }
 .keonut:active { cursor: grabbing; }
 .card.dangkeo {
+  position: relative; z-index: 20;
   border-color: var(--accent);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
-  transform: scale(1.015);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .22);
+  will-change: transform;
 }
 .card.dangkeo .keonut { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 body.keoco { -webkit-user-select: none; user-select: none; cursor: grabbing; }
@@ -2558,7 +2559,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   }
 
   /* ---------- kéo đổi chỗ cây ---------- */
-  var keo = null, keoX = 0, keoY = 0, cuonId = null;
+  var keo = null, keoX = 0, keoY = 0, cuonId = null, rafId = null;
 
   // chỉ mấy thẻ đang hiện mới đổi chỗ cho nhau — cây đang bị tab hay chữ tìm giấu đi
   // thì vẫn nằm yên chỗ cũ trong danh sách
@@ -2578,18 +2579,71 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return true;
   }
 
-  function ngamVao(x, y) {
-    if (!keo) return;
-    keo.el.style.pointerEvents = 'none';
-    var t = document.elementFromPoint(x, y);
-    keo.el.style.pointerEvents = '';
-    t = (t && t.closest) ? t.closest('.card[data-the]') : null;
-    if (!t || t === keo.el || t.parentNode !== keo.el.parentNode) return;
-    var r = t.getBoundingClientRect();
-    var g = keo.el.parentNode;
-    if (y > r.top + r.height / 2) g.insertBefore(keo.el, t.nextSibling);
-    else g.insertBefore(keo.el, t);
+  // đổi chỗ xong thì mấy thẻ kia trượt về chỗ mới chứ không nhảy cái rụp:
+  // đo trước — đổi — kéo ngược về chỗ cũ rồi thả cho nó tự trôi tới
+  function truotCho(doi) {
+    var ds = [].slice.call(keo.el.parentNode.children);
+    var cu = ds.map(function (c) {
+      var r = c.getBoundingClientRect();
+      return { c: c, t: r.top, l: r.left };
+    });
+    doi();
+    var dich = [];
+    cu.forEach(function (o) {
+      if (o.c === keo.el) return;
+      var r = o.c.getBoundingClientRect();
+      var dx = o.l - r.left, dy = o.t - r.top;
+      if (!dx && !dy) return;
+      o.c.style.transition = 'none';
+      o.c.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      dich.push(o.c);
+    });
+    if (!dich.length) return;
+    void keo.el.parentNode.offsetHeight;
+    dich.forEach(function (c) {
+      c.style.transition = 'transform .18s ease';
+      c.style.transform = '';
+    });
   }
+
+  function ngamVao() {
+    if (!keo) return false;
+    var el = keo.el, g = el.parentNode;
+    var rd = el.getBoundingClientRect();
+    var tamY = rd.top + rd.height / 2, tamX = rd.left + rd.width / 2;
+    var ds = g.querySelectorAll('.card[data-the]'), t = null, r = null, i;
+    for (i = 0; i < ds.length; i++) {
+      if (ds[i] === el) continue;
+      var q = ds[i].getBoundingClientRect();
+      if (tamY >= q.top && tamY <= q.bottom && tamX >= q.left && tamX <= q.right) {
+        t = ds[i]; r = q; break;
+      }
+    }
+    if (!t) return false;
+    var sau = tamY > r.top + r.height / 2;
+    if (sau ? t.nextSibling === el : t.previousSibling === el) return false;
+    truotCho(function () {
+      if (sau) g.insertBefore(el, t.nextSibling);
+      else g.insertBefore(el, t);
+    });
+    return true;
+  }
+
+  function datThe() {
+    var r = keo.el.getBoundingClientRect();
+    var cho = r.top - keo.dy;
+    keo.dy = keoY - keo.cam - cho;
+    keo.el.style.transform = 'translateY(' + keo.dy + 'px) scale(1.02)';
+  }
+
+  // mỗi khung hình: dán thẻ dưới ngón tay, thấy lấn qua thẻ khác thì đổi chỗ liền
+  function theoNgonTay() {
+    rafId = null;
+    if (!keo) return;
+    datThe();
+    if (ngamVao()) datThe();
+  }
+  function veLai() { if (!rafId) rafId = requestAnimationFrame(theoNgonTay); }
 
   // kéo tới sát mép thì trang tự trôi, khỏi phải thả ra kéo lại
   function batDauCuon() {
@@ -2601,7 +2655,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       else if (keoY > h - 100) d = Math.min(20, (keoY - (h - 100)) / 3);
       if (!d) return;
       window.scrollBy(0, d);
-      ngamVao(keoX, keoY);
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      theoNgonTay();
     }, 16);
   }
   function dungCuon() { if (cuonId) { clearInterval(cuonId); cuonId = null; } }
@@ -2613,9 +2668,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!el) return;
     ev.preventDefault();
     try { h.setPointerCapture(ev.pointerId); } catch (e) {}
-    keo = { h: h, el: el, pid: ev.pointerId, truoc: thuTuDom().join() };
+    var r0 = el.getBoundingClientRect();
+    keo = { h: h, el: el, pid: ev.pointerId, truoc: thuTuDom().join(),
+            cam: ev.clientY - r0.top, dy: 0 };
     keoX = ev.clientX; keoY = ev.clientY;
     el.classList.add('dangkeo');
+    el.style.transition = 'none';
+    el.style.transform = 'translateY(0px) scale(1.02)';
     document.body.classList.add('keoco');
     batDauCuon();
   });
@@ -2624,22 +2683,39 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (!keo || ev.pointerId !== keo.pid) return;
     ev.preventDefault();
     keoX = ev.clientX; keoY = ev.clientY;
-    ngamVao(keoX, keoY);
+    veLai();
   });
 
   function thaKeo() {
     if (!keo) return;
-    keo.el.classList.remove('dangkeo');
-    document.body.classList.remove('keoco');
     dungCuon();
-    var yen = keo.truoc === thuTuDom().join();
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    document.body.classList.remove('keoco');
+    var el0 = keo.el, yen = keo.truoc === thuTuDom().join();
     keo = null;
-    if (yen) return;
+    // thả ra thì thẻ trôi nhẹ về đúng ô của nó, không rớt cái bụp
+    el0.style.transition = 'transform .16s ease';
+    el0.style.transform = '';
+    setTimeout(function () {
+      el0.style.transition = '';
+      el0.style.transform = '';
+      el0.classList.remove('dangkeo');
+    }, 180);
+    if (yen) { donNetKeo(); return; }
     if (sapLaiTheoDom()) {
       save(true);
-      render();
+      donNetKeo(el0);
       flash('Đã đổi chỗ. Thứ tự mới nhớ luôn trong máy này.', false, 4000);
     } else render();
+  }
+
+  // dọn mấy dòng style tạm mà lúc kéo đã bôi lên các thẻ khác
+  function donNetKeo(tru) {
+    [].forEach.call(document.querySelectorAll('.card'), function (c) {
+      if (c === tru) return;
+      c.style.transition = '';
+      c.style.transform = '';
+    });
   }
   document.addEventListener('pointerup', thaKeo);
   document.addEventListener('pointercancel', thaKeo);
