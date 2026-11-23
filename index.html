@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-133009">
+<html lang="vi" data-build="20261123-133446">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -592,8 +592,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         <div class="field">
           <label for="np-loai">Loại cây</label>
           <select id="np-loai" name="loai">
-            <option value="sen">Sen đá</option>
             <option value="xr">Xương rồng</option>
+            <option value="sen">Sen đá</option>
           </select>
         </div>
         <div class="field">
@@ -2401,7 +2401,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       try { localStorage.setItem(TAB_KEY, tab); } catch (e) {}
     }
     el.hidden = !plants.length;
-    var ds = [['all', 'Tất cả'], ['sen', LOAI.sen], ['xr', LOAI.xr]];
+    var ds = [['all', 'Tất cả'], ['xr', LOAI.xr], ['sen', LOAI.sen]];
     if (n.none) ds.push(['none', 'Chưa phân loại']);
     el.innerHTML = ds.map(function (d) {
       var on = tab === d[0];
@@ -2415,7 +2415,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   // hai nút Sen đá / Xương rồng — bấm lại cái đang chọn là bỏ ra, về chưa phân loại
   function chonLoai(p) {
     var cur = loaiCua(p);
-    return '<div class="loaipick">' + ['sen', 'xr'].map(function (k) {
+    return '<div class="loaipick">' + ['xr', 'sen'].map(function (k) {
       return '<button class="loaibtn' + (cur === k ? ' on' : '') + '" type="button"' +
              ' data-act="set-loai" data-id="' + p.id + '" data-loai="' + k + '"' +
              ' aria-pressed="' + (cur === k ? 'true' : 'false') + '">' + LOAI[k] + '</button>';
@@ -2433,8 +2433,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return '<div class="ganbar"><span>' + n + ' cây chưa phân loại' +
            (timChu ? ' đang hiện' : '') +
            '. Bấm Sen đá hay Xương rồng ở từng thẻ, hoặc gắn hết một lượt:</span>' +
-           '<button class="btn btn-sm" type="button" data-act="gan-het" data-loai="sen">Hết → Sen đá</button>' +
-           '<button class="btn btn-sm" type="button" data-act="gan-het" data-loai="xr">Hết → Xương rồng</button></div>';
+           '<button class="btn btn-sm" type="button" data-act="gan-het" data-loai="xr">Hết → Xương rồng</button>' +
+           '<button class="btn btn-sm" type="button" data-act="gan-het" data-loai="sen">Hết → Sen đá</button></div>';
   }
 
   function hopTim(p) {
