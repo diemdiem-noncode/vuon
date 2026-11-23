@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-093034">
+<html lang="vi" data-build="20261123-100221">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -413,7 +413,29 @@ h2 {
   border: 1px solid var(--line); background: var(--surface-2); flex: none;
 }
 span.o-xem { display: grid; place-items: center; font-size: 17px; color: var(--ink-2); }
-.ghi-xem .so { font-size: 12px; color: var(--ink-2); margin-left: 2px; }
+.ghi-xem .so { font-size: 12px; color: var(--ink-2); margin-left: 4px; }
+.o-wrap { position: relative; display: inline-flex; flex: none; }
+.o-wrap .o-xem { cursor: zoom-in; }
+.o-x {
+  position: absolute; top: -6px; right: -6px; width: 21px; height: 21px;
+  border-radius: 50%; border: 1px solid var(--line); cursor: pointer;
+  background: var(--surface); color: var(--ink-2);
+  font: inherit; font-size: 11px; line-height: 1; padding: 0;
+  display: grid; place-items: center;
+}
+.o-x:hover, .o-x:focus-visible { border-color: var(--alert); color: var(--alert); }
+.xemto {
+  position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.92);
+  display: flex; align-items: center; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+}
+.xemto-than { max-width: 100%; max-height: 100%; display: flex; }
+.xemto-than img, .xemto-than video { max-width: 100%; max-height: 100%; border-radius: 10px; }
+.xemto-x {
+  position: absolute; top: max(12px, env(safe-area-inset-top, 0px)); right: 12px;
+  width: 40px; height: 40px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(255,255,255,.16); color: #FFFFFF; font-size: 16px; line-height: 1;
+}
 input, select, textarea {
   font: inherit;
   font-size: 14px;
@@ -642,6 +664,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       <button class="btn btn-sm btn-danger" type="button" data-act="hoi-xoa">Xóa hẳn</button>
     </div>
   </div>
+</div>
+<div class="xemto" id="xemTo" hidden>
+  <div class="xemto-than" id="xemToThan"></div>
+  <button class="xemto-x" type="button" data-act="dong-xemto" aria-label="Đóng" title="Đóng">&#10005;</button>
 </div>
 <input type="file" id="morePic" accept="image/*,video/*" multiple
        style="position:absolute;width:1px;height:1px;opacity:0;clip:rect(0 0 0 0)">
@@ -2186,6 +2212,39 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       '<div class="stat"><b>' + rooting + '</b><span>đang ra rễ</span></div>';
   }
 
+  // iPhone hay thu hồi tệp khi ô chọn bị đụng tới, nên giữ danh sách riêng
+  function chonCuaO(pin) {
+    if (pin.__chon) return pin.__chon;
+    return pin.files ? [].slice.call(pin.files) : [];
+  }
+
+  var xemUrl = null;
+  function moXemTo(t) {
+    if (!t) return;
+    dongXemTo();
+    var hop = $('#xemTo'), than = $('#xemToThan');
+    if (!hop || !than) return;
+    try { xemUrl = URL.createObjectURL(t); } catch (e) { return; }
+    var el;
+    if (laVideo(t)) {
+      el = document.createElement('video');
+      el.setAttribute('controls', ''); el.setAttribute('playsinline', '');
+      el.setAttribute('autoplay', '');
+    } else {
+      el = document.createElement('img');
+      el.alt = '';
+    }
+    el.src = xemUrl;
+    than.appendChild(el);
+    hop.hidden = false;
+  }
+  function dongXemTo() {
+    var hop = $('#xemTo'), than = $('#xemToThan');
+    if (than) than.innerHTML = '';
+    if (hop) hop.hidden = true;
+    if (xemUrl) { try { URL.revokeObjectURL(xemUrl); } catch (e) {} xemUrl = null; }
+  }
+
   // chọn xong thấy ngay mấy tấm vừa chọn, khỏi đoán máy nhận chưa
   function veXemTruoc(pin) {
     var f = pin.closest ? pin.closest('form') : null;
@@ -2194,22 +2253,36 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     (o.__urls || []).forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
     o.__urls = [];
     o.innerHTML = '';
-    var fs = pin.files ? [].slice.call(pin.files) : [];
+    var fs = chonCuaO(pin);
     if (!fs.length) { o.hidden = true; return; }
     o.hidden = false;
-    fs.slice(0, 12).forEach(function (t) {
+    fs.slice(0, 12).forEach(function (t, k) {
+      var w = document.createElement('span');
+      w.className = 'o-wrap';
+      var oanh;
       if (laVideo(t)) {
-        var d = document.createElement('span');
-        d.className = 'o-xem'; d.textContent = '▶';
-        o.appendChild(d);
-        return;
+        oanh = document.createElement('span');
+        oanh.className = 'o-xem'; oanh.textContent = '▶';
+      } else {
+        var u;
+        try { u = URL.createObjectURL(t); } catch (e) { return; }
+        o.__urls.push(u);
+        oanh = document.createElement('img');
+        oanh.className = 'o-xem'; oanh.src = u; oanh.alt = '';
       }
-      var u;
-      try { u = URL.createObjectURL(t); } catch (e) { return; }
-      o.__urls.push(u);
-      var im = document.createElement('img');
-      im.className = 'o-xem'; im.src = u; im.alt = '';
-      o.appendChild(im);
+      oanh.setAttribute('data-act', 'xem-chon');
+      oanh.setAttribute('data-i', k);
+      oanh.setAttribute('title', 'Bấm để xem to');
+      w.appendChild(oanh);
+      var x = document.createElement('button');
+      x.type = 'button'; x.className = 'o-x';
+      x.setAttribute('data-act', 'bo-chon');
+      x.setAttribute('data-i', k);
+      x.setAttribute('aria-label', 'Bỏ tệp này');
+      x.title = 'Bỏ tệp này';
+      x.textContent = '✕';
+      w.appendChild(x);
+      o.appendChild(w);
     });
     var sp = document.createElement('span');
     sp.className = 'so';
@@ -2472,6 +2545,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     }
     var pic = ev.target.closest('[data-pic]');
     if (pic) { openPic(pic.getAttribute('data-pic'), pic.getAttribute('data-log')); return; }
+    if (ev.target.id === 'xemTo' || ev.target.id === 'xemToThan') { dongXemTo(); return; }
     if (ev.target.id === 'hoiLuu') { dongHoiLuu(); return; }
     if (ev.target.id === 'hoiXoa') { dongHoiXoa(); return; }
     if (ev.target.id === 'lightbox' || ev.target.id === 'lbStage') { closeLb(); return; }
@@ -2509,6 +2583,20 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (act === 'lb-close') { closeLb(); return; }
     if (act === 'lb-prev') { stepPic(-1); return; }
     if (act === 'lb-next') { stepPic(1); return; }
+    if (act === 'dong-xemto') { dongXemTo(); return; }
+    if (act === 'bo-chon' || act === 'xem-chon') {
+      var fm = b.closest('form');
+      var pin4 = fm && fm.elements ? fm.elements.pic : null;
+      if (!pin4) return;
+      var ds = chonCuaO(pin4).slice();
+      var k = parseInt(b.getAttribute('data-i'), 10);
+      if (act === 'xem-chon') { moXemTo(ds[k]); return; }
+      ds.splice(k, 1);
+      pin4.__chon = ds;
+      if (!ds.length) { pin4.__chon = null; try { pin4.value = ''; } catch (e) {} }
+      veXemTruoc(pin4);
+      return;
+    }
     if (act === 'xoa-tim') {
       var ti = $('#timCay');
       if (ti) ti.value = '';
@@ -2676,7 +2764,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       ev.preventDefault();
       var note = f.elements.note.value.trim();
       var pin = f.elements.pic;
-      var files = pin && pin.files ? [].slice.call(pin.files) : [];
+      var files = pin ? chonCuaO(pin) : [];
       if (!note && !files.length) {
         flash('Viết gì đó hoặc chọn ảnh đã nhé.');
         return;
@@ -2701,7 +2789,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         flash('Đang xử lý ' + xong + '/' + tong + ' tệp, chờ xíu…', true);
       }).then(function (res) {
         dangLuu = false;
-        try { if (pin) { pin.value = ''; veXemTruoc(pin); } } catch (e) {}
+        try { if (pin) { pin.__chon = null; pin.value = ''; veXemTruoc(pin); } } catch (e) {}
         var ps = res.pics;
         var g = chiaTheoNgay(pid, ps, ngay);
         sortLogs();
@@ -2770,6 +2858,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       return;
     }
     if (el.type === 'file' && el.name === 'pic') {
+      el.__chon = el.files ? [].slice.call(el.files) : null;
       veXemTruoc(el);
       return;
     }
@@ -2840,6 +2929,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (t && t.getAttribute && t.getAttribute('data-act') === 'set-name' && ev.key === 'Enter') {
       ev.preventDefault();
       doneName(t.getAttribute('data-id'));
+      return;
+    }
+    if (!$('#xemTo').hidden) {
+      if (ev.key === 'Escape') dongXemTo();
       return;
     }
     if (!$('#hoiLuu').hidden) {
