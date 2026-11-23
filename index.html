@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-090032">
+<html lang="vi" data-build="20261123-091222">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -358,12 +358,19 @@ h2 {
 .meter dd.soon  { color: var(--watch); }
 .meter dd.late  { color: var(--alert); }
 .meter dd.none  { color: var(--ink-2); font-weight: 400; }
-.m-bar { height: 4px; border-radius: 4px; background: var(--surface-2); margin-top: 5px; overflow: hidden; }
+.m-bar { height: 4px; border-radius: 4px; background: var(--surface-2); margin-top: 9px; overflow: hidden; }
 .m-bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
 .m-bar i.soon { background: var(--watch); }
 .m-bar i.late { background: var(--alert); }
 .m-bar.off { opacity: .45; }
 .card-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; }
+.wevsel { width: auto; flex: 0 1 auto; font-size: 12.5px; padding: 6px 6px; }
+.wevtxt { font-size: 12.5px; color: var(--ink-2); }
+.duetxt { font-size: 12.5px; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.duetxt.ok   { color: var(--ink-2); font-weight: 500; }
+.duetxt.soon { color: var(--watch); }
+.duetxt.late { color: var(--alert); }
+.duetxt.none { color: var(--ink-2); font-weight: 400; }
 .btn-ico {
   margin-left: auto; min-width: 42px; padding: 7px 12px;
   font-size: 15px; line-height: 1.1; text-align: center;
@@ -374,6 +381,7 @@ h2 {
   border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2);
 }
 .namebtn.ok { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.morabtn { min-width: 40px; text-align: center; }
 .name-edit { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
 
 /* --- expanded detail --- */
@@ -694,7 +702,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return d === null ? null : every - d;
   }
   function dueText(n) {
-    if (n === null) return 'chưa ghi lần nào';
+    if (n === null) return 'chưa tưới';
     if (n > 1) return 'còn ' + n + ' ngày';
     if (n === 1) return 'ngày mai';
     if (n === 0) return 'hôm nay';
@@ -2250,20 +2258,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     hydratePics();
   }
 
-  function meterRow(label, last, every) {
-    var n = dueIn(last, every), cls = dueClass(n);
+  function thanhTuoi(p, every, cls) {
     var pct = 0;
     if (every) {
-      var d = since(last);
+      var d = since(p.lastWater);
       pct = d === null ? 0 : Math.max(0, Math.min(100, Math.round(d / every * 100)));
     }
-    return '<div class="meter">' +
-      '<div class="m-row"><dt>' + label +
-        '<span class="m-every">' + everyText(every) + '</span></dt>' +
-      '<dd class="' + cls + '">' + (every ? dueText(n) : '—') + '</dd></div>' +
-      '<div class="m-bar' + (every ? '' : ' off') + '">' +
-        '<i class="' + cls + '" style="width:' + (every ? pct : 0) + '%"></i></div>' +
-      '</div>';
+    return '<div class="m-bar' + (every ? '' : ' off') + '">' +
+           '<i class="' + cls + '" style="width:' + pct + '%"></i></div>';
   }
 
   function card(p) {
@@ -2284,27 +2286,26 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
              ' aria-label="' + (editing ? 'Xong, thôi sửa tên' : 'Sửa tên cây') + '"' +
              ' title="' + (editing ? 'Xong' : 'Sửa tên') + '">' + (editing ? '✓' : '✎') + '</button>'
            : '') +
-         '</div>';
-    if (isOpen) {
-      h += '<div class="fields">' +
-           '<div class="field"><label for="e-wev-' + p.id + '">Bao lâu tưới một lần</label><select id="e-wev-' + p.id + '" data-act="set-wev" data-id="' + p.id + '">' +
-           everyOpts(WATER_OPTS, waterEvery(p)) + '</select></div>' +
-           '</div>';
-    }
-    if (!gone) {
-      h += '<dl class="meters">' +
-           meterRow('Tưới', p.lastWater, waterEvery(p)) +
-           '</dl>';
-    }
-    h += '<div class="card-acts">' +
-         (gone ? '' :
-         '<button class="btn btn-sm" type="button" data-act="water" data-id="' + p.id + '">Tưới rồi</button>') +
-         '<button class="btn btn-sm btn-ico" type="button" data-act="open" data-id="' + p.id + '"' +
+         '<button class="namebtn morabtn" type="button" data-act="open" data-id="' + p.id + '"' +
            ' aria-expanded="' + (isOpen ? 'true' : 'false') + '"' +
            ' aria-label="' + (isOpen ? 'Thu lại' : 'Mở ra để xem và ghi chú') + '"' +
            ' title="' + (isOpen ? 'Thu lại' : 'Mở ra để xem và ghi chú') + '">' +
            (isOpen ? '▴' : '▾') + '</button>' +
          '</div>';
+    var wev = waterEvery(p);
+    var con = dueIn(p.lastWater, wev), mau = dueClass(con);
+    if (!gone) {
+      h += '<div class="card-acts">' +
+           '<button class="btn btn-sm" type="button" data-act="water" data-id="' + p.id + '">Tưới rồi</button>' +
+           (isOpen
+             ? '<select class="wevsel" id="e-wev-' + p.id + '" data-act="set-wev" data-id="' + p.id + '"' +
+               ' aria-label="Bao lâu tưới một lần" title="Bao lâu tưới một lần">' +
+               everyOpts(WATER_OPTS, wev) + '</select>'
+             : '<span class="wevtxt">' + everyText(wev) + '</span>') +
+           '<span class="duetxt ' + mau + '">' + (wev ? dueText(con) : '—') + '</span>' +
+           '</div>';
+      h += thanhTuoi(p, wev, mau);
+    }
     if (isOpen) h += detail(p);
     return h + '</article>';
   }
