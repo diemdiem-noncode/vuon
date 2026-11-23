@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-124918">
+<html lang="vi" data-build="20261123-133009">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -724,6 +724,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   };
   var LOAI = { sen: 'Sen đá', xr: 'Xương rồng' };
   var TAB_KEY = 'vuon-sen-da.tab';
+  var XR_KEY = 'vuon-sen-da.xr1';
   var KEY = 'vuon-sen-da.v1';
 
   var SEED = {
@@ -737,7 +738,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   var plants = [], logs = [], openId = null, confirmDel = null, fresh = false;
   var timChu = '';
-  var tab = 'all', ganLoai = null;
+  var tab = 'all', ganLoai = null, xrDaGan = 0;
   try {
     var t0 = localStorage.getItem(TAB_KEY);
     if (t0 === 'sen' || t0 === 'xr' || t0 === 'none') tab = t0;
@@ -2174,6 +2175,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
             if (p.stage === 'dead') { p.dead = true; p.stage = ''; }
             if (p.stage === 'settled') p.stage = '';
           });
+          var roi = null;
+          try { roi = localStorage.getItem(XR_KEY); } catch (e) {}
+          if (!roi) {
+            plants.forEach(function (p) {
+              if (p.loai !== 'sen' && p.loai !== 'xr') { p.loai = 'xr'; xrDaGan++; }
+            });
+            try { localStorage.setItem(XR_KEY, '1'); } catch (e) {}
+            if (xrDaGan) save(true);
+          }
           sortLogs(); return;
         }
       } catch (e) {}
@@ -3234,6 +3244,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   initTheme();
   load();
   render();
+  if (xrDaGan) flash('Đã xếp ' + xrDaGan + ' cây chưa phân loại vào Xương rồng. ' +
+    'Bé nào thật ra là sen đá thì mở thẻ cây ra bấm đổi lại nhé.', false, 12000);
   if (fresh) flash('Mọi thứ lưu trong máy này thôi. Trước khi xóa lịch sử duyệt web nhớ ghé mục “Cất giữ” ở cuối trang nhé.');
 
   xinGiuLau().then(function () { showUsage(); });
