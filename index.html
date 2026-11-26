@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261126-111232">
+<html lang="vi" data-build="20261126-120115">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -2325,9 +2325,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function donKe(c) {
     [c.ke[-1], c.ke[1]].forEach(function (e) { if (e && e.parentNode) e.remove(); });
     c.im.classList.remove('lb-keo');
-    c.im.style.transition = '';
-    c.im.style.transform = '';
-    c.im.style.opacity = '';
+    veCho0(c.im);
+  }
+
+  // Đặt tấm ảnh thật về đúng ô của nó, DỨT KHOÁT, không hiệu ứng.
+  // Lúc trượt xong, tấm ảnh thật đang nằm ngoài màn hình (chỗ -w). Nếu lúc trả
+  // nó về mà còn hiệu ứng thì nó TRƯỢT NGƯỢC từ ngoài vào — đúng cái "lướt qua
+  // xong nó giật ngược lại". Nên phải tắt hiệu ứng, ép máy tính lại ngay, rồi
+  // mới trả hiệu ứng về cho lần phóng to sau.
+  function veCho0(im) {
+    if (!im) return;
+    im.style.transition = 'none';
+    im.style.transform = 'none';
+    im.style.opacity = '';
+    void im.offsetWidth;
+    im.style.transition = '';
+    im.style.transform = '';
   }
 
   // thả tay: đi quá nửa đường thì trượt hẳn qua tấm kia, chưa tới thì về chỗ cũ
@@ -2351,10 +2364,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       function san() {
         if (roi) return;
         roi = true;
-        c.im.style.transition = 'none';
-        c.im.style.transform = '';
-        c.im.style.opacity = '';
-        donKe(c);
+        donKe(c);          // tự đặt lại tấm ảnh thật, không hiệu ứng
       }
       // tấm nét nặng. Chờ nó nạp xong RỒI mới giải mã rồi mới đổi — gọi giải mã
       // ngay thì nó giải mã tấm cũ còn đang nằm đó, loé lên một cái.
