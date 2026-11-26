@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261126-104458">
+<html lang="vi" data-build="20261126-105758">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1989,24 +1989,35 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   function lamBanNhe(id, b) {
     if (nhanh[id]) return Promise.resolve(nhanh[id]);
     var MAX = 1200;
-    function cat(bm) {
-      var sc = Math.min(1, MAX / Math.max(bm.width, bm.height));
-      if (sc >= 1) { try { bm.close && bm.close(); } catch (e) {} return null; }
-      var c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(bm.width * sc));
-      c.height = Math.max(1, Math.round(bm.height * sc));
-      try { c.getContext('2d').drawImage(bm, 0, 0, c.width, c.height); } catch (e) {}
-      try { bm.close && bm.close(); } catch (e) {}
+    // vẽ qua thẻ <img> chứ không qua createImageBitmap: ảnh iPhone có thẻ xoay
+    // (EXIF), thẻ <img> luôn xoay đúng, còn createImageBitmap thì tuỳ máy — lệch
+    // một cái là bản thu nhỏ nằm ngang trong khi bản nét nằm dọc.
+    function cat() {
       return new Promise(function (res) {
-        c.toBlob(function (nb) {
-          try { c.width = 1; c.height = 1; } catch (e) {}   // iPhone giữ canvas dai
-          res(nb || null);
-        }, 'image/jpeg', 0.84);
+        var u, xong = false, im = new Image();
+        function thoi(kq) { if (xong) return; xong = true;
+          try { URL.revokeObjectURL(u); } catch (e) {} res(kq || null); }
+        try { u = URL.createObjectURL(b); } catch (e) { return thoi(null); }
+        im.onerror = function () { thoi(null); };
+        im.onload = function () {
+          var w = im.naturalWidth, h = im.naturalHeight;
+          var sc = Math.min(1, MAX / Math.max(w, h));
+          if (!w || !h || sc >= 1) return thoi(null);
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(w * sc));
+          c.height = Math.max(1, Math.round(h * sc));
+          try { c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); }
+          catch (e) { return thoi(null); }
+          c.toBlob(function (nb) {
+            try { c.width = 1; c.height = 1; } catch (e) {}   // iPhone giữ canvas dai
+            thoi(nb);
+          }, 'image/jpeg', 0.84);
+        };
+        im.src = u;
+        setTimeout(function () { thoi(null); }, 4000);
       });
     }
-    return Promise.resolve()
-      .then(function () { return createImageBitmap(b); })
-      .then(cat)
+    return cat()
       .then(function (nb) {
         if (!nb) return null;
         var u = URL.createObjectURL(nb);
@@ -2028,11 +2039,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (!q || q.kind === 'video' || nhanh[q.id]) return;
       getPic(q.id).then(function (b) {
         if (!(b instanceof Blob)) return;
+        // có blob là có đường dẫn liền — để lỡ kéo ngay bây giờ vẫn có cái mà hiện,
+        // bản nhẹ làm xong lúc nào thì dùng lúc đó
+        if (!urlCache[q.id]) {
+          try { urlCache[q.id] = URL.createObjectURL(b); } catch (e) {}
+        }
         return lamBanNhe(q.id, b).then(function (u) {
-          if (!u) {                              // máy không làm nổi bản nhẹ thì dùng bản gốc
-            u = urlCache[q.id];
-            if (!u) { try { u = urlCache[q.id] = URL.createObjectURL(b); } catch (e) { return; } }
-          }
+          if (!u) u = urlCache[q.id];
+          if (!u) return;
           var im = new Image();
           im.decoding = 'async';
           im.src = u;
@@ -2178,7 +2192,20 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   /* ---------- lướt qua tấm khác ---------- */
   var henTruot = [];
 
+  // Sau khi thả tay, việc "chốt" (đổi số thứ tự, nạp tấm nét) hẹn 270 mili giây
+  // nữa mới làm. Vuốt liên tiếp nhanh thì cú vuốt sau khởi động lúc việc đó còn
+  // đang chờ — dựng hai tấm kề theo số thứ tự CŨ, thành ra chỉ sai tấm rồi mới
+  // sửa lại, nhìn như giật. Nên trước khi làm gì tiếp, chốt dứt điểm việc cũ đã.
+  var chotCho = null;
+
+  function chotNgay() {
+    var f = chotCho;
+    chotCho = null;
+    if (f) f();
+  }
+
   function donTruot() {
+    chotNgay();
     huyCuon();
     henTruot.forEach(clearTimeout);
     henTruot = [];
@@ -2268,7 +2295,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   // dựng sẵn tấm trước và tấm sau, đặt nằm ngay ngoài hai mép khung
   function dungKe() {
-    if (cuon || lbSet.length < 2) return;
+    if (cuon) return;
+    chotNgay();
+    if (lbSet.length < 2) return;
     var st = $('#lbStage'), im = $('#lbImg');
     if (!st || !im || im.hidden || !im.src) return;
     var sr = st.getBoundingClientRect();
@@ -2277,6 +2306,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     [-1, 1].forEach(function (d) {
       var q = lbSet[(lbIdx + d + lbSet.length) % lbSet.length];
       if (!q || q.kind === 'video') return;       // video thì để nó đổi kiểu cũ
+      // chưa có ảnh sẵn thì thôi, đừng dựng — dựng ra là một ô đen trượt vào
+      var u = nhanh[q.id] || urlCache[q.id];
+      if (!u) { napTruoc(); return; }
       var e = document.createElement('img');
       e.className = 'lb-bay lb-keo';
       e.alt = '';
@@ -2288,15 +2320,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       datCuon(e, d * w, false);
       st.appendChild(e);
       cuon.ke[d] = e;
-      // nạp trước rồi thì có sẵn đường dẫn, gán thẳng — khỏi chờ lấy từ kho ra
-      if (nhanh[q.id]) { e.src = nhanh[q.id]; return; }
-      if (urlCache[q.id]) { e.src = urlCache[q.id]; return; }
-      getPic(q.id).then(function (b) {
-        if (!(b instanceof Blob) || !e.parentNode) return;
-        var u = urlCache[q.id];
-        if (!u) { try { u = urlCache[q.id] = URL.createObjectURL(b); } catch (er) { return; } }
-        e.src = u;
-      });
+      e.src = u;
     });
     if (!cuon.ke[-1] && !cuon.ke[1]) { cuon = null; return; }
     im.classList.add('lb-keo');
@@ -2342,7 +2366,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     datCuon(c.im, -d * w, true);
     datCuon(c.ke[-1], (-1 - d) * w, true);
     datCuon(c.ke[1], (1 - d) * w, true);
-    henTruot.push(setTimeout(function () {
+    var chot = function () {
       if (!d) { donKe(c); return; }
       lbIdx = (lbIdx + d + lbSet.length) % lbSet.length;
       // giấu tấm thật đi rồi mới nạp — khỏi loé tấm cũ một nhịp ở giữa khung
@@ -2364,7 +2388,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         if (c.im.decode) c.im.decode().then(san, san);
         else san();
       }, { once: true });
-      henTruot.push(setTimeout(san, 900));
+      // lưới an toàn: để ngoài danh sách hẹn, kẻo bị dọn mất thì tấm ảnh
+      // nằm ẩn luôn không ai bật lại
+      setTimeout(san, 900);
+    };
+    chotCho = chot;
+    henTruot.push(setTimeout(function () {
+      if (chotCho === chot) { chotCho = null; chot(); }
     }, 270));
   }
 
