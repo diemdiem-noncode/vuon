@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261126-103557">
+<html lang="vi" data-build="20261126-104458">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1980,22 +1980,66 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   // nạp sẵn tấm trước và tấm sau rồi giải mã luôn, để lát kéo qua là có hình liền.
   // ảnh máy ảnh nặng vài chục triệu điểm, giải mã ngay lúc ngón tay đang kéo là khựng.
-  var giuNap = [];
+  // ảnh iPhone cỡ 3024x4032 nặng 6 MB, giải mã một tấm mất cả phần mười giây —
+  // kéo ba tấm cỡ đó cùng lúc là khựng. Nên tấm kề hai bên dùng bản thu nhỏ
+  // (dài nhất 1200px, nhẹ hơn hai chục lần), tấm nào thành tấm đang xem thì mới
+  // lấy bản nét ra.
+  var nhanh = {}, thuTuNhanh = [], giuNap = [];
+
+  function lamBanNhe(id, b) {
+    if (nhanh[id]) return Promise.resolve(nhanh[id]);
+    var MAX = 1200;
+    function cat(bm) {
+      var sc = Math.min(1, MAX / Math.max(bm.width, bm.height));
+      if (sc >= 1) { try { bm.close && bm.close(); } catch (e) {} return null; }
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bm.width * sc));
+      c.height = Math.max(1, Math.round(bm.height * sc));
+      try { c.getContext('2d').drawImage(bm, 0, 0, c.width, c.height); } catch (e) {}
+      try { bm.close && bm.close(); } catch (e) {}
+      return new Promise(function (res) {
+        c.toBlob(function (nb) {
+          try { c.width = 1; c.height = 1; } catch (e) {}   // iPhone giữ canvas dai
+          res(nb || null);
+        }, 'image/jpeg', 0.84);
+      });
+    }
+    return Promise.resolve()
+      .then(function () { return createImageBitmap(b); })
+      .then(cat)
+      .then(function (nb) {
+        if (!nb) return null;
+        var u = URL.createObjectURL(nb);
+        nhanh[id] = u;
+        thuTuNhanh.push(id);
+        while (thuTuNhanh.length > 8) {          // dọn bớt, khỏi phình bộ nhớ
+          var cu = thuTuNhanh.shift();
+          if (nhanh[cu]) { try { URL.revokeObjectURL(nhanh[cu]); } catch (e) {} delete nhanh[cu]; }
+        }
+        return u;
+      })
+      .catch(function () { return null; });
+  }
+
   function napTruoc() {
     if (lbSet.length < 2) return;
     [-1, 1].forEach(function (d) {
       var q = lbSet[(lbIdx + d + lbSet.length) % lbSet.length];
-      if (!q || q.kind === 'video') return;
+      if (!q || q.kind === 'video' || nhanh[q.id]) return;
       getPic(q.id).then(function (b) {
         if (!(b instanceof Blob)) return;
-        var u = urlCache[q.id];
-        if (!u) { try { u = urlCache[q.id] = URL.createObjectURL(b); } catch (e) { return; } }
-        var im = new Image();
-        im.decoding = 'async';
-        im.src = u;
-        if (im.decode) im.decode().catch(function () {});
-        giuNap.push(im);                       // giữ lại kẻo bị dọn mất công giải mã
-        while (giuNap.length > 6) giuNap.shift();
+        return lamBanNhe(q.id, b).then(function (u) {
+          if (!u) {                              // máy không làm nổi bản nhẹ thì dùng bản gốc
+            u = urlCache[q.id];
+            if (!u) { try { u = urlCache[q.id] = URL.createObjectURL(b); } catch (e) { return; } }
+          }
+          var im = new Image();
+          im.decoding = 'async';
+          im.src = u;
+          if (im.decode) im.decode().catch(function () {});
+          giuNap.push(im);                       // giữ lại kẻo bị dọn mất công giải mã
+          while (giuNap.length > 6) giuNap.shift();
+        });
       });
     });
   }
@@ -2245,6 +2289,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       st.appendChild(e);
       cuon.ke[d] = e;
       // nạp trước rồi thì có sẵn đường dẫn, gán thẳng — khỏi chờ lấy từ kho ra
+      if (nhanh[q.id]) { e.src = nhanh[q.id]; return; }
       if (urlCache[q.id]) { e.src = urlCache[q.id]; return; }
       getPic(q.id).then(function (b) {
         if (!(b instanceof Blob) || !e.parentNode) return;
@@ -2312,8 +2357,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         c.im.style.opacity = '';
         donKe(c);
       }
-      c.im.addEventListener('load', san, { once: true });
-      henTruot.push(setTimeout(san, 400));
+      // tấm nét nặng. Chờ nó nạp xong RỒI mới giải mã rồi mới đổi — gọi giải mã
+      // ngay thì nó giải mã tấm cũ còn đang nằm đó, loé lên một cái.
+      // Trong lúc chờ vẫn đang giữ bản nhẹ ở đúng chỗ nên không ai thấy trống.
+      c.im.addEventListener('load', function () {
+        if (c.im.decode) c.im.decode().then(san, san);
+        else san();
+      }, { once: true });
+      henTruot.push(setTimeout(san, 900));
     }, 270));
   }
 
