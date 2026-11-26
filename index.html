@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261123-142914">
+<html lang="vi" data-build="20261126-100719">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -75,10 +75,10 @@ img{max-width:100%}
 .thumbs {
   display: flex; flex-wrap: nowrap; gap: 9px; margin-top: 4px;
   overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x proximity; scrollbar-width: none; padding-bottom: 2px;
+  scrollbar-width: none; padding-bottom: 2px;
 }
 .thumbs::-webkit-scrollbar { display: none; }
-.pic { margin: 0; width: 86px; flex: 0 0 auto; scroll-snap-align: start; }
+.pic { margin: 0; width: 86px; flex: 0 0 auto; }
 .swipe-hint {
   display: block; font-size: 10px; color: var(--ink-2); opacity: .75;
   margin-top: 9px; letter-spacing: .01em;
@@ -115,8 +115,10 @@ img{max-width:100%}
 .lb-gap { display: block; font-size: 11px; line-height: 1.3; margin-top: 3px; color: rgba(255,255,255,.62); }
 .lb-stage {
   flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden; touch-action: none;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center; position: relative;
 }
+/* bản sao của tấm đang xem, để nó bay ra trong lúc tấm mới trôi vào */
+.lb-bay { position: absolute; margin: 0; border-radius: 8px; object-fit: contain; pointer-events: none; }
 .lightbox img {
   max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px;
   cursor: zoom-in; transition: transform .18s ease;
@@ -125,7 +127,18 @@ img{max-width:100%}
   max-width: 100%; max-height: 100%; border-radius: 8px; background: #000000;
 }
 .lb-stage.is-video { touch-action: auto; }
-.lightbox img.zoomed { cursor: zoom-out; transition: none; }
+.lightbox img.zoomed { cursor: zoom-out; }
+/* đang chụm tay hay kéo thì bỏ hiệu ứng, ảnh phải dính ngay dưới tay */
+.lightbox img.tay { transition: none; }
+/* bấm tấm nhỏ: nền tối hiện dần, tấm ảnh nở ra từ ngay chỗ vừa bấm */
+.lightbox.lb-vao { animation: lbVao .2s ease both; }
+.lightbox.lb-ra { animation: lbVao .17s ease both reverse; pointer-events: none; }
+@keyframes lbVao { from { opacity: 0; } to { opacity: 1; } }
+.lb-stage.lb-no { animation: lbNo .26s cubic-bezier(.22,.7,.3,1) both; }
+@keyframes lbNo { from { opacity: 0; transform: scale(.78); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .lightbox.lb-vao, .lightbox.lb-ra, .lb-stage.lb-no { animation: none; }
+}
 .lb-bar { display: flex; gap: 8px; align-items: center; }
 .lb-count { color: #FFFFFF; font-size: 12px; padding: 0 6px; }
 .lb-bar .btn[disabled] { opacity: .35; }
@@ -352,6 +365,13 @@ h2 {
   gap: 11px;
 }
 .card.open { grid-column: 1 / -1; border-color: var(--accent); }
+/* thẻ vừa bấm mở: phần bên trong hiện ra từ từ, không bày ra cái rụp */
+.detail.vuamo { animation: hienRa .24s ease both; }
+@keyframes hienRa {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .detail.vuamo { animation: none; } }
 .card.gone { filter: grayscale(1); opacity: .6; background: var(--surface-2); }
 .card.gone:hover, .card.gone:focus-within { opacity: .85; }
 .card-top { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
@@ -1833,23 +1853,58 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     return out;
   }
 
-  function openPic(picId, logId) {
+  function openPic(picId, logId, tu) {
     var l = logs.filter(function (x) { return x.id === logId; })[0];
     lbLog = l || null;
     lbSet = l ? plantPics(l.plantId) : [];
     if (!lbSet.length) lbSet = [{ id: picId, taken: null, src: null, log: l || null }];
     lbIdx = 0;
     for (var i = 0; i < lbSet.length; i++) if (lbSet[i].id === picId) lbIdx = i;
-    $('#lightbox').hidden = false;
+    var lb = $('#lightbox'), st = $('#lbStage');
+    lb.hidden = false;
+    lb.classList.remove('lb-ra');
+    // nở ra từ ngay chỗ vừa bấm, chứ không bày ra cái rụp giữa màn hình
+    if (st) {
+      st.style.transformOrigin = '';
+      if (tu && tu.getBoundingClientRect) {
+        var q = tu.getBoundingClientRect(), k = st.getBoundingClientRect();
+        if (q.width && k.width) {
+          st.style.transformOrigin = (q.left + q.width / 2 - k.left) + 'px ' +
+                                     (q.top + q.height / 2 - k.top) + 'px';
+        }
+      }
+      st.classList.remove('lb-no');
+      void st.offsetWidth;
+      st.classList.add('lb-no');
+    }
+    lb.classList.remove('lb-vao');
+    void lb.offsetWidth;
+    lb.classList.add('lb-vao');
     showPic();
   }
 
   function closeLb() {
+    var lb = $('#lightbox');
+    if (lb.hidden) return;
     resetZoom();
+    donTruot();
     var ve = $('#lbVid');
     try { ve.pause(); } catch (e) {}
     ve.removeAttribute('src'); ve.load && ve.load();
-    $('#lightbox').hidden = true;
+    var it = window.matchMedia &&
+             window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    lb.classList.remove('lb-vao');
+    if (it) {
+      lb.hidden = true;
+    } else {
+      // mờ dần rồi mới tắt — đang mờ thì bấm xuyên qua không được nữa
+      lb.classList.add('lb-ra');
+      setTimeout(function () {
+        if (!lb.classList.contains('lb-ra')) return;   // lỡ mở lại rồi thì thôi
+        lb.classList.remove('lb-ra');
+        lb.hidden = true;
+      }, 180);
+    }
     datNutXoa();
     dongHoiLuu();
   }
@@ -2051,10 +2106,177 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     } catch (e) { flash('Máy không cho lưu tệp này.'); }
   }
 
-  function stepPic(d) {
+  /* ---------- lướt qua tấm khác ---------- */
+  var henTruot = [];
+
+  function donTruot() {
+    huyCuon();
+    henTruot.forEach(clearTimeout);
+    henTruot = [];
+    var st = $('#lbStage');
+    if (!st) return;
+    [].forEach.call(st.querySelectorAll('.lb-bay'), function (c) { c.remove(); });
+  }
+
+  // bấm ‹ › , gõ phím mũi tên hay vuốt tay: tấm đang xem bay ra một bên,
+  // tấm mới trôi vào từ bên kia — thay vì đổi cái rụp
+  function stepPic(d, batDau) {
     if (lbSet.length < 2) return;
+    var st = $('#lbStage'), im = $('#lbImg');
+    var it = window.matchMedia &&
+             window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var duoc = st && im && !it && !im.hidden && im.src && lbScale <= 1;
+    donTruot();
+    if (!duoc) {
+      lbIdx = (lbIdx + d + lbSet.length) % lbSet.length;
+      showPic();
+      return;
+    }
+    // đo ngay lúc này nên đã gồm cả quãng ngón tay vừa kéo — bản sao nằm đúng
+    // chỗ tấm ảnh đang hiện, khỏi giật một cái rồi mới bay
+    var sr = st.getBoundingClientRect(), r = im.getBoundingClientRect();
+    var w = sr.width || window.innerWidth;
+    var b = batDau || 0, xa = d > 0 ? w : -w;
+    var bay = im.cloneNode(false);
+    bay.removeAttribute('id');
+    bay.className = 'lb-bay';
+    bay.style.left = (r.left - sr.left) + 'px';
+    bay.style.top = (r.top - sr.top) + 'px';
+    bay.style.width = r.width + 'px';
+    bay.style.height = r.height + 'px';
+    // quãng ngón tay vừa kéo đã nằm trong left rồi, để nguyên transform chép theo
+    // thì nó cộng thêm lần nữa, thả tay ra là giật một cái
+    bay.style.transform = 'none';
+    bay.style.transition = 'transform .28s cubic-bezier(.22,.7,.3,1), opacity .28s ease';
+    st.appendChild(bay);
+
     lbIdx = (lbIdx + d + lbSet.length) % lbSet.length;
-    showPic();
+    var srcCu = im.src;
+    showPic();            // tấm mới lấy từ trong máy ra, chậm hơn một nhịp
+
+    var vao = im.hidden ? null : im;
+    if (vao) {
+      vao.style.transition = 'none';
+      vao.style.transform = 'translateX(' + (b + xa) + 'px)';
+      vao.style.opacity = '0';
+    }
+    void st.offsetHeight;
+
+    var roi = false;
+    function troiVao() {
+      if (roi) return;
+      roi = true;
+      // hai tấm cất bước cùng một lúc, đi cùng một quãng — nhìn như hai tấm
+      // nằm cạnh nhau trượt qua, chứ không tấm chạy trước tấm chạy sau
+      bay.style.transform = 'translateX(' + (-b - xa) + 'px)';
+      bay.style.opacity = '0';
+      bay.addEventListener('transitionend', function () { bay.remove(); }, { once: true });
+      henTruot.push(setTimeout(function () { bay.remove(); }, 420));
+      if (!vao) return;
+      vao.style.transition = 'transform .28s cubic-bezier(.22,.7,.3,1), opacity .22s ease';
+      vao.style.transform = '';
+      vao.style.opacity = '';
+      henTruot.push(setTimeout(function () { vao.style.transition = ''; }, 320));
+    }
+    // chờ tấm mới lấy ra xong mới cho cả hai chạy, khỏi trượt vào một ô trống;
+    // lỡ lâu quá hay hỏng thì cũng cho chạy, đừng đứng hình hoài
+    if (!vao) { troiVao(); return; }
+    vao.addEventListener('load', troiVao, { once: true });
+    henTruot.push(setTimeout(function () {
+      if (im.src !== srcCu && im.complete) troiVao();
+    }, 90));
+    henTruot.push(setTimeout(troiVao, 500));
+  }
+
+  /* ---------- kéo ngang: hai tấm kề hai bên đi theo ngón tay ---------- */
+  var cuon = null;
+
+  function datCuon(el, x, muot) {
+    if (!el) return;
+    el.style.transition = muot ? 'transform .26s cubic-bezier(.22,.7,.3,1)' : 'none';
+    el.style.transform = 'translateX(' + x + 'px)';
+  }
+
+  // dựng sẵn tấm trước và tấm sau, đặt nằm ngay ngoài hai mép khung
+  function dungKe() {
+    if (cuon || lbSet.length < 2) return;
+    var st = $('#lbStage'), im = $('#lbImg');
+    if (!st || !im || im.hidden || !im.src) return;
+    var sr = st.getBoundingClientRect();
+    var w = sr.width || window.innerWidth;
+    cuon = { st: st, im: im, w: w, ke: {} };
+    [-1, 1].forEach(function (d) {
+      var q = lbSet[(lbIdx + d + lbSet.length) % lbSet.length];
+      if (!q || q.kind === 'video') return;       // video thì để nó đổi kiểu cũ
+      var e = document.createElement('img');
+      e.className = 'lb-bay';
+      e.alt = '';
+      e.style.left = '0px';
+      e.style.top = '0px';
+      e.style.width = sr.width + 'px';
+      e.style.height = sr.height + 'px';
+      datCuon(e, d * w, false);
+      st.appendChild(e);
+      cuon.ke[d] = e;
+      getPic(q.id).then(function (b) {
+        if (!(b instanceof Blob) || !e.parentNode) return;
+        var u = urlCache[q.id];
+        if (!u) { try { u = urlCache[q.id] = URL.createObjectURL(b); } catch (er) { return; } }
+        e.src = u;
+      });
+    });
+    if (!cuon.ke[-1] && !cuon.ke[1]) { cuon = null; }
+  }
+
+  function keoCuon(dx) {
+    if (!cuon) return;
+    datCuon(cuon.im, dx, false);
+    datCuon(cuon.ke[-1], -cuon.w + dx, false);
+    datCuon(cuon.ke[1], cuon.w + dx, false);
+  }
+
+  function donKe(c) {
+    [c.ke[-1], c.ke[1]].forEach(function (e) { if (e && e.parentNode) e.remove(); });
+    c.im.style.transition = '';
+    c.im.style.transform = '';
+    c.im.style.opacity = '';
+  }
+
+  // thả tay: đi quá nửa đường thì trượt hẳn qua tấm kia, chưa tới thì về chỗ cũ
+  function thaCuon(dx) {
+    if (!cuon) return;
+    var c = cuon, w = c.w;
+    cuon = null;
+    var d = 0;
+    if (Math.abs(dx) > 48 && c.ke[dx < 0 ? 1 : -1]) d = dx < 0 ? 1 : -1;
+    datCuon(c.im, -d * w, true);
+    datCuon(c.ke[-1], (-1 - d) * w, true);
+    datCuon(c.ke[1], (1 - d) * w, true);
+    henTruot.push(setTimeout(function () {
+      if (!d) { donKe(c); return; }
+      lbIdx = (lbIdx + d + lbSet.length) % lbSet.length;
+      // giấu tấm thật đi rồi mới nạp — khỏi loé tấm cũ một nhịp ở giữa khung
+      c.im.style.opacity = '0';
+      showPic();
+      var roi = false;
+      function san() {
+        if (roi) return;
+        roi = true;
+        c.im.style.transition = 'none';
+        c.im.style.transform = '';
+        c.im.style.opacity = '';
+        donKe(c);
+      }
+      c.im.addEventListener('load', san, { once: true });
+      henTruot.push(setTimeout(san, 400));
+    }, 270));
+  }
+
+  function huyCuon() {
+    if (!cuon) return;
+    var c = cuon;
+    cuon = null;
+    donKe(c);
   }
 
   // giữ ảnh không trôi ra ngoài khung
@@ -2468,6 +2690,48 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     o.textContent = n ? ('Thấy ' + n + ' cây.') : 'Không thấy cây nào.';
   }
 
+  // bấm mũi tên mở hay thu thẻ cây: đo chỗ cũ của từng thẻ, vẽ lại, rồi cho mấy thẻ
+  // trượt từ chỗ cũ về chỗ mới. Đo theo toạ độ cả trang nên lát nữa trang có tự cuộn
+  // tới thẻ vừa mở thì mấy thẻ kia vẫn không bị lệch.
+  function muotMoThe(the, lam) {
+    var g = $('#grid');
+    var it = window.matchMedia &&
+             window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!g || it) { lam(); return; }
+    var sx = window.pageXOffset || 0, sy = window.pageYOffset || 0, cu = {};
+    [].forEach.call(g.querySelectorAll('.card[data-the]'), function (c) {
+      var r = c.getBoundingClientRect();
+      cu[c.getAttribute('data-the')] = { l: r.left + sx, t: r.top + sy };
+    });
+    lam();
+    // thẻ vừa bấm thì để yên — nó đang nở ra hay thu lại cả hàng, kéo nó trượt nữa
+    // sẽ rối, mà trang còn phải đo đúng chỗ nó để cuộn tới
+    var moi = $('#grid'), tru = the;
+    if (!moi) return;
+    var nd = openId && moi.querySelector('.card[data-the="' + openId + '"] .detail');
+    if (nd) nd.classList.add('vuamo');
+    var sx2 = window.pageXOffset || 0, sy2 = window.pageYOffset || 0, ds = [];
+    [].forEach.call(moi.querySelectorAll('.card[data-the]'), function (c) {
+      var k = c.getAttribute('data-the');
+      if (k === tru) return;
+      var o = cu[k];
+      if (!o) return;
+      var r = c.getBoundingClientRect();
+      var dx = o.l - (r.left + sx2), dy = o.t - (r.top + sy2);
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      c.style.transition = 'none';
+      c.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      ds.push(c);
+    });
+    if (!ds.length) return;
+    void moi.offsetHeight;
+    ds.forEach(function (c) {
+      c.style.transition = 'transform .24s cubic-bezier(.22,.7,.3,1)';
+      c.style.transform = '';
+      setTimeout(function () { c.style.transition = ''; c.style.transform = ''; }, 280);
+    });
+  }
+
   function renderGrid() {
     var g = $('#grid'), keep = grabDetail();
     if (!plants.length) {
@@ -2843,7 +3107,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       return;
     }
     var pic = ev.target.closest('[data-pic]');
-    if (pic) { openPic(pic.getAttribute('data-pic'), pic.getAttribute('data-log')); return; }
+    if (pic) { openPic(pic.getAttribute('data-pic'), pic.getAttribute('data-log'), pic); return; }
     if (ev.target.id === 'xemTo' || ev.target.id === 'xemToThan') { dongXemTo(); return; }
     if (ev.target.id === 'hoiLuu') { dongHoiLuu(); return; }
     if (ev.target.id === 'hoiXoa') { dongHoiXoa(); return; }
@@ -2945,7 +3209,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var moRa = openId !== id;
       openId = moRa ? id : null;
       confirmDel = null; editName = null; editLog = null; editDate = null;
-      renderGrid();
+      muotMoThe(id, renderGrid);
       // thẻ mở ra chiếm cả hàng nên mọi thứ bên dưới xê dịch — kéo thẳng tới nó,
       // khỏi phải đi tìm
       keoToiThe(id);
@@ -3300,10 +3564,20 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
       return Math.sqrt(dx * dx + dy * dy);
     }
+    // kéo chưa đủ xa thì thả ra ảnh tự trôi về chỗ cũ
+    function veCho() {
+      var ia = $('#lbImg');
+      if (!ia || !ia.style.transform) return;
+      ia.style.transition = 'transform .2s ease, opacity .2s ease';
+      ia.style.transform = '';
+      ia.style.opacity = '';
+      setTimeout(function () { ia.style.transition = ''; }, 240);
+    }
     document.addEventListener('touchstart', function (ev) {
       if (!inStage(ev)) return;
       if (ev.touches.length === 2) {
         chum = true; moved = true; lastTap = 0;
+        var i2 = $('#lbImg'); if (i2) i2.classList.add('tay');
         d0 = xa(ev.touches[0], ev.touches[1]); s0 = lbScale;
         mx0 = (ev.touches[0].clientX + ev.touches[1].clientX) / 2;
         my0 = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
@@ -3329,19 +3603,40 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (chum || ev.touches.length !== 1) return;
       var t = ev.touches[0], dx = t.clientX - sx, dy = t.clientY - sy;
       if (Math.abs(dx) > 8 || Math.abs(dy) > 8) moved = true;
-      if (lbScale > 1) { lbPan.x = px + dx; lbPan.y = py + dy; applyPan(); }
+      if (lbScale > 1) {
+        var i3 = $('#lbImg'); if (i3) i3.classList.add('tay');
+        lbPan.x = px + dx; lbPan.y = py + dy; applyPan(); return;
+      }
+      // chưa phóng to: kéo ngang thì cả tấm đang xem lẫn hai tấm kề cùng đi theo tay,
+      // thấy luôn tấm kế bên ló ra — không phải thả tay rồi mới biết
+      var ia = $('#lbImg');
+      if (!ia || ia.hidden || !moved || Math.abs(dx) <= Math.abs(dy)) return;
+      if (lbSet.length > 1) {
+        dungKe();
+        if (cuon) { keoCuon(dx); return; }
+      }
+      // chỉ có một tấm: kéo nặng tay rồi bật về, biết là hết ảnh
+      ia.style.transition = 'none';
+      ia.style.transform = 'translateX(' + (dx / 3) + 'px)';
     }, { passive: true });
     document.addEventListener('touchend', function (ev) {
       if (!inStage(ev)) return;
+      // nhấc hết tay ra thì trả hiệu ứng lại, lần phóng / thu sau mới mượt
+      if (!ev.touches.length) {
+        var i0 = $('#lbImg'); if (i0) i0.classList.remove('tay');
+      }
       if (chum) {
         if (ev.touches.length === 0) { chum = false; moved = false; lastTap = 0; }
         return;
       }
       var t = ev.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
-      if (lbScale <= 1 && moved && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
-        stepPic(dx < 0 ? 1 : -1);
+      if (cuon) { thaCuon(dx); return; }
+      if (lbScale <= 1 && moved && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) &&
+          lbSet.length > 1) {
+        stepPic(dx < 0 ? 1 : -1, dx);
         return;
       }
+      if (lbScale <= 1) veCho();
       if (moved) return;
       var now = Date.now();
       if (now - lastTap < 320) { toggleZoom(t); lastTap = 0; }
@@ -3350,7 +3645,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     document.addEventListener('touchcancel', function (ev) {
       if (!inStage(ev)) return;
       chum = false; moved = false;
+      var ih = $('#lbImg'); if (ih) ih.classList.remove('tay');
+      if (cuon) { thaCuon(0); return; }
       if (lbScale > 1) { lbPan.x = px; lbPan.y = py; applyPan(); }
+      else veCho();
     }, { passive: true });
 
     // con lăn / trackpad trên máy tính
@@ -3365,6 +3663,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     document.addEventListener('mousedown', function (ev) {
       if (!inStage(ev) || lbScale <= 1 || ev.button !== 0) return;
       keo = true; kx = ev.clientX; ky = ev.clientY; px = lbPan.x; py = lbPan.y;
+      var ik = $('#lbImg'); if (ik) ik.classList.add('tay');
       ev.preventDefault();
     });
     document.addEventListener('mousemove', function (ev) {
@@ -3372,7 +3671,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       lbPan.x = px + (ev.clientX - kx); lbPan.y = py + (ev.clientY - ky);
       applyPan();
     });
-    document.addEventListener('mouseup', function () { keo = false; });
+    document.addEventListener('mouseup', function () {
+      keo = false;
+      var iu = $('#lbImg'); if (iu) iu.classList.remove('tay');
+    });
 
     // chặn Safari tự phóng cả trang khi chụm trong khung ảnh
     ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (n) {
