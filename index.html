@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261126-100719">
+<html lang="vi" data-build="20261126-103557">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -119,6 +119,8 @@ img{max-width:100%}
 }
 /* bản sao của tấm đang xem, để nó bay ra trong lúc tấm mới trôi vào */
 .lb-bay { position: absolute; margin: 0; border-radius: 8px; object-fit: contain; pointer-events: none; }
+/* đang kéo thì cho máy giữ sẵn ba tấm thành lớp riêng, khỏi vẽ lại mỗi khung hình */
+.lb-keo { will-change: transform; }
 .lightbox img {
   max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px;
   cursor: zoom-in; transition: transform .18s ease;
@@ -1973,6 +1975,29 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         dow.title = share ? 'Lưu về máy' : 'Tải tệp về';
       });
     });
+    henTruot.push(setTimeout(napTruoc, 150));   // nhường cho tấm đang xem hiện ra trước
+  }
+
+  // nạp sẵn tấm trước và tấm sau rồi giải mã luôn, để lát kéo qua là có hình liền.
+  // ảnh máy ảnh nặng vài chục triệu điểm, giải mã ngay lúc ngón tay đang kéo là khựng.
+  var giuNap = [];
+  function napTruoc() {
+    if (lbSet.length < 2) return;
+    [-1, 1].forEach(function (d) {
+      var q = lbSet[(lbIdx + d + lbSet.length) % lbSet.length];
+      if (!q || q.kind === 'video') return;
+      getPic(q.id).then(function (b) {
+        if (!(b instanceof Blob)) return;
+        var u = urlCache[q.id];
+        if (!u) { try { u = urlCache[q.id] = URL.createObjectURL(b); } catch (e) { return; } }
+        var im = new Image();
+        im.decoding = 'async';
+        im.src = u;
+        if (im.decode) im.decode().catch(function () {});
+        giuNap.push(im);                       // giữ lại kẻo bị dọn mất công giải mã
+        while (giuNap.length > 6) giuNap.shift();
+      });
+    });
   }
 
   function datNutXoa(nhan) {
@@ -2209,8 +2234,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var q = lbSet[(lbIdx + d + lbSet.length) % lbSet.length];
       if (!q || q.kind === 'video') return;       // video thì để nó đổi kiểu cũ
       var e = document.createElement('img');
-      e.className = 'lb-bay';
+      e.className = 'lb-bay lb-keo';
       e.alt = '';
+      e.decoding = 'async';
       e.style.left = '0px';
       e.style.top = '0px';
       e.style.width = sr.width + 'px';
@@ -2218,6 +2244,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       datCuon(e, d * w, false);
       st.appendChild(e);
       cuon.ke[d] = e;
+      // nạp trước rồi thì có sẵn đường dẫn, gán thẳng — khỏi chờ lấy từ kho ra
+      if (urlCache[q.id]) { e.src = urlCache[q.id]; return; }
       getPic(q.id).then(function (b) {
         if (!(b instanceof Blob) || !e.parentNode) return;
         var u = urlCache[q.id];
@@ -2225,7 +2253,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
         e.src = u;
       });
     });
-    if (!cuon.ke[-1] && !cuon.ke[1]) { cuon = null; }
+    if (!cuon.ke[-1] && !cuon.ke[1]) { cuon = null; return; }
+    im.classList.add('lb-keo');
   }
 
   function keoCuon(dx) {
@@ -2235,8 +2264,23 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     datCuon(cuon.ke[1], cuon.w + dx, false);
   }
 
+  // ngón tay báo về dày hơn số khung hình màn hình vẽ được — gom lại, mỗi khung
+  // hình chỉ dời một lần, khỏi làm việc thừa rồi khựng
+  var cuonRaf = null;
+  function veTheoKhung() {
+    if (cuonRaf) return;
+    cuonRaf = requestAnimationFrame(function () {
+      cuonRaf = null;
+      if (cuon) keoCuon(cuon.dx || 0);
+    });
+  }
+  function thoiVe() {
+    if (cuonRaf) { cancelAnimationFrame(cuonRaf); cuonRaf = null; }
+  }
+
   function donKe(c) {
     [c.ke[-1], c.ke[1]].forEach(function (e) { if (e && e.parentNode) e.remove(); });
+    c.im.classList.remove('lb-keo');
     c.im.style.transition = '';
     c.im.style.transform = '';
     c.im.style.opacity = '';
@@ -2245,6 +2289,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
   // thả tay: đi quá nửa đường thì trượt hẳn qua tấm kia, chưa tới thì về chỗ cũ
   function thaCuon(dx) {
     if (!cuon) return;
+    thoiVe();
     var c = cuon, w = c.w;
     cuon = null;
     var d = 0;
@@ -2274,6 +2319,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
   function huyCuon() {
     if (!cuon) return;
+    thoiVe();
     var c = cuon;
     cuon = null;
     donKe(c);
@@ -3613,7 +3659,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       if (!ia || ia.hidden || !moved || Math.abs(dx) <= Math.abs(dy)) return;
       if (lbSet.length > 1) {
         dungKe();
-        if (cuon) { keoCuon(dx); return; }
+        if (cuon) { cuon.dx = dx; veTheoKhung(); return; }
       }
       // chỉ có một tấm: kéo nặng tay rồi bật về, biết là hết ảnh
       ia.style.transition = 'none';
