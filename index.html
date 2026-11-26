@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi" data-build="20261126-105758">
+<html lang="vi" data-build="20261126-111232">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1890,6 +1890,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     if (lb.hidden) return;
     resetZoom();
     donTruot();
+    if (henDung) { clearTimeout(henDung); henDung = null; }   // đóng rồi thì khỏi dựng
     var ve = $('#lbVid');
     try { ve.pause(); } catch (e) {}
     ve.removeAttribute('src'); ve.load && ve.load();
@@ -1941,6 +1942,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
     var tenCay = (byId(og.plantId) || {}).name || '';
     var chu = slug(tenCay) || 'cay';
     getPic(p.id).then(function (b) {
+      // Lấy ảnh từ kho là việc phải chờ. Vuốt nhanh thì có mấy lượt cùng chờ,
+      // không có gì bảo đảm lượt nào xong trước — lượt của tấm cũ xong sau là
+      // nó dán tấm cũ đè lên tấm đang xem. Nên tới đây kiểm lại đã.
+      if (lbSet[lbIdx] !== p) return;
       if (!(b instanceof Blob)) { flash('Không tìm thấy tệp này trong máy.'); return; }
       var u = urlCache[p.id];
       if (!u) { try { u = urlCache[p.id] = URL.createObjectURL(b); } catch (e) { return; } }
@@ -1949,8 +1954,28 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var ten = chu + (ngay ? '-' + ngay : '') + duoi;
       dow.href = u;
       dow.download = ten;
-      // dựng sẵn CẢ HAI bản ngay từ bây giờ. Lúc chị chọn trong khung hỏi là
-      // gửi đi liền được — iPhone không cho chờ rồi mới mở bảng chia sẻ.
+      // Dựng sẵn CẢ HAI bản để lúc bấm Lưu là gửi đi liền được (iPhone không cho
+      // chờ rồi mới mở bảng chia sẻ). NHƯNG dựng là vẽ lại rồi nén lại nguyên
+      // tấm 6 MB những ba lượt, mỗi lượt cả trăm mili giây — chen vào giữa cú
+      // vuốt là ảnh đứng hình. Nên chỉ làm khi người ta đã dừng hẳn ở một tấm.
+      if (henDung) { clearTimeout(henDung); henDung = null; }
+      var cho = function () {
+        henDung = setTimeout(function () {
+          henDung = null;
+          if (lbSet[lbIdx] !== p) return;            // đã qua tấm khác rồi
+          if (cuon || chotCho) { cho(); return; }    // tay còn đang vuốt, hẹn lại
+          dungTepLuu(p, b, vid, ten, ngay, tenCay, dow);
+        }, 900);
+      };
+      cho();
+    });
+    henTruot.push(setTimeout(napTruoc, 150));   // nhường cho tấm đang xem hiện ra trước
+  }
+
+  var henDung = null;
+
+  // phần nặng, tách riêng: chỉ chạy khi người ta đã dừng lại ở một tấm
+  function dungTepLuu(p, b, vid, ten, ngay, tenCay, dow) {
       var lam = vid
         ? Promise.resolve({ co: b, tron: b })
         : stampJpeg(b, ngay).then(function (tron) {
@@ -1974,86 +1999,36 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
                               : (share ? 'Lưu ảnh' : 'Tải ảnh về');
         dow.title = share ? 'Lưu về máy' : 'Tải tệp về';
       });
-    });
-    henTruot.push(setTimeout(napTruoc, 150));   // nhường cho tấm đang xem hiện ra trước
   }
 
   // nạp sẵn tấm trước và tấm sau rồi giải mã luôn, để lát kéo qua là có hình liền.
   // ảnh máy ảnh nặng vài chục triệu điểm, giải mã ngay lúc ngón tay đang kéo là khựng.
-  // ảnh iPhone cỡ 3024x4032 nặng 6 MB, giải mã một tấm mất cả phần mười giây —
-  // kéo ba tấm cỡ đó cùng lúc là khựng. Nên tấm kề hai bên dùng bản thu nhỏ
-  // (dài nhất 1200px, nhẹ hơn hai chục lần), tấm nào thành tấm đang xem thì mới
-  // lấy bản nét ra.
-  var nhanh = {}, thuTuNhanh = [], giuNap = [];
+  // Nạp sẵn và giải mã sẵn tấm trước, tấm sau, để lát kéo qua là có hình liền.
+  // Chỉ nạp với giải mã thôi — giải mã thì máy làm ở luồng riêng, không chiếm
+  // màn hình. KHÔNG nén lại thành bản nhỏ nữa: nén là việc nặng chiếm máy,
+  // đúng thứ làm ảnh đứng hình giữa lúc đang vuốt.
+  var giuNap = [];
 
-  function lamBanNhe(id, b) {
-    if (nhanh[id]) return Promise.resolve(nhanh[id]);
-    var MAX = 1200;
-    // vẽ qua thẻ <img> chứ không qua createImageBitmap: ảnh iPhone có thẻ xoay
-    // (EXIF), thẻ <img> luôn xoay đúng, còn createImageBitmap thì tuỳ máy — lệch
-    // một cái là bản thu nhỏ nằm ngang trong khi bản nét nằm dọc.
-    function cat() {
-      return new Promise(function (res) {
-        var u, xong = false, im = new Image();
-        function thoi(kq) { if (xong) return; xong = true;
-          try { URL.revokeObjectURL(u); } catch (e) {} res(kq || null); }
-        try { u = URL.createObjectURL(b); } catch (e) { return thoi(null); }
-        im.onerror = function () { thoi(null); };
-        im.onload = function () {
-          var w = im.naturalWidth, h = im.naturalHeight;
-          var sc = Math.min(1, MAX / Math.max(w, h));
-          if (!w || !h || sc >= 1) return thoi(null);
-          var c = document.createElement('canvas');
-          c.width = Math.max(1, Math.round(w * sc));
-          c.height = Math.max(1, Math.round(h * sc));
-          try { c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); }
-          catch (e) { return thoi(null); }
-          c.toBlob(function (nb) {
-            try { c.width = 1; c.height = 1; } catch (e) {}   // iPhone giữ canvas dai
-            thoi(nb);
-          }, 'image/jpeg', 0.84);
-        };
-        im.src = u;
-        setTimeout(function () { thoi(null); }, 4000);
-      });
-    }
-    return cat()
-      .then(function (nb) {
-        if (!nb) return null;
-        var u = URL.createObjectURL(nb);
-        nhanh[id] = u;
-        thuTuNhanh.push(id);
-        while (thuTuNhanh.length > 8) {          // dọn bớt, khỏi phình bộ nhớ
-          var cu = thuTuNhanh.shift();
-          if (nhanh[cu]) { try { URL.revokeObjectURL(nhanh[cu]); } catch (e) {} delete nhanh[cu]; }
-        }
-        return u;
-      })
-      .catch(function () { return null; });
+  function giaiMaSan(u) {
+    var im = new Image();
+    im.decoding = 'async';
+    im.src = u;
+    if (im.decode) im.decode().catch(function () {});
+    giuNap.push(im);
+    while (giuNap.length > 6) giuNap.shift();
   }
 
   function napTruoc() {
     if (lbSet.length < 2) return;
     [-1, 1].forEach(function (d) {
       var q = lbSet[(lbIdx + d + lbSet.length) % lbSet.length];
-      if (!q || q.kind === 'video' || nhanh[q.id]) return;
+      if (!q || q.kind === 'video') return;
+      if (urlCache[q.id]) { giaiMaSan(urlCache[q.id]); return; }
       getPic(q.id).then(function (b) {
         if (!(b instanceof Blob)) return;
-        // có blob là có đường dẫn liền — để lỡ kéo ngay bây giờ vẫn có cái mà hiện,
-        // bản nhẹ làm xong lúc nào thì dùng lúc đó
-        if (!urlCache[q.id]) {
-          try { urlCache[q.id] = URL.createObjectURL(b); } catch (e) {}
-        }
-        return lamBanNhe(q.id, b).then(function (u) {
-          if (!u) u = urlCache[q.id];
-          if (!u) return;
-          var im = new Image();
-          im.decoding = 'async';
-          im.src = u;
-          if (im.decode) im.decode().catch(function () {});
-          giuNap.push(im);                       // giữ lại kẻo bị dọn mất công giải mã
-          while (giuNap.length > 6) giuNap.shift();
-        });
+        var u = urlCache[q.id];
+        if (!u) { try { u = urlCache[q.id] = URL.createObjectURL(b); } catch (e) { return; } }
+        giaiMaSan(u);
       });
     });
   }
@@ -2307,7 +2282,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
       var q = lbSet[(lbIdx + d + lbSet.length) % lbSet.length];
       if (!q || q.kind === 'video') return;       // video thì để nó đổi kiểu cũ
       // chưa có ảnh sẵn thì thôi, đừng dựng — dựng ra là một ô đen trượt vào
-      var u = nhanh[q.id] || urlCache[q.id];
+      var u = urlCache[q.id];
       if (!u) { napTruoc(); return; }
       var e = document.createElement('img');
       e.className = 'lb-bay lb-keo';
